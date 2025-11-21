@@ -32,9 +32,9 @@ class mainDataDB:
                     FOREIGN KEY (image_id) REFERENCE image_metadata(image_id)         
                 )
             ''')
-        
+
     def insert_item(self, image_id:int, item_text:str, taxonomy:Optional[str], qty:int=1,
-                    price:Optional[float]=None) -> int:
+                    price:Optional[float]=None) -> Optional[int]:
         with self as conn:
             c = conn.cursor()
             c.execute('''
@@ -43,7 +43,7 @@ class mainDataDB:
             ''', (image_id, item_text, taxonomy, qty, price))
             return c.lastrowid
     
-    def get_items_for_image(self, image_id:str)-> List[Tuple]:
+    def get_items_for_image(self, image_id:str):
         with self as conn:
             c = conn.cursor()
             c.execute("SELECT * FROM main_data WHERE image_id=?", (image_id,))

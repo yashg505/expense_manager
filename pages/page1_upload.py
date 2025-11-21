@@ -1,6 +1,6 @@
 import streamlit as st
 from src.components.navbar import render_navbar
-from src.components.uploader import upload_images
+from src.components.image_uploader import upload_images
 
 st.write("Upload the receipt")
 render_navbar(current_page=1)

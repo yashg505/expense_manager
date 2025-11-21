@@ -1,6 +1,5 @@
 import sqlite3
-from typing import Optional, Tuple
-
+from typing import Optional
 class CorrectionsDB:
     '''
     <<docstring>>
@@ -31,11 +30,23 @@ class CorrectionsDB:
                 )
         ''')
     
-    def insert_correction(self, item_text:str, corrected_taxonomy:str, user_id:str='system')-> int:
+    def insert_correction(self, item_text:str, corrected_taxonomy:str, user_id:str='system')-> Optional[int]:
         with self as conn:
             c = conn.cursor()
-            c.execute('SELECT corrected_taxonomy FROM corrections WHERE item_text=?', (item_text,))
+            c.execute("""
+                INSERT INTO corrections (item_text, corrected_taxonomy, user_id)
+                VALUES (?, ?, ?)
+            """, (item_text, corrected_taxonomy, user_id))
+            return c.lastrowid if c.lastrowid else None
+    
+    def get_correction(self, item_text:str) -> Optional[str]:
+        with self as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT corrected_taxonomy 
+                FROM corrections
+                WHERE item_text = ?
+            """, (item_text,))
             row = c.fetchone()
             return row[0] if row else None
-    
-    
+  
