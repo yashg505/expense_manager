@@ -41,12 +41,12 @@ def upload_images():
     Stores accepted image objects and fingerprints in session_state.
     
     '''
-    # --- UI Header ---
+
     st.subheader("📤 Upload Receipt Images")
 
-    # session state for photos
+
     st.session_state['images'] 
-    # --- File Upload via Button/Drag & Drop ---
+
     uploaded_files = st.file_uploader(
         "Upload receipt images (JPEG, PNG)",
         type=["png", "jpg", "jpeg"],

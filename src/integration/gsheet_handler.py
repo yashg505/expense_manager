@@ -12,10 +12,10 @@ logger = get_logger(__name__)
 class GSheetHandler:
     config = load_config_file()
 
-    def __init__(self, sheet_url=None, credential_file=None):
+    def __init__(self, sheet_url=None, credential_file=None, sheet_id=None):
+        self.sheet_id = sheet_id
         self.sheet_url = sheet_url or self._extract_sheet_id()
         self.credential_file = credential_file or self.config['credential_file']
-        self.sheet_id = None
         self.sheet = None
         self.df = None
 
@@ -26,6 +26,8 @@ class GSheetHandler:
         Extract sheet_id from sheet_url or load from config if URL is not given.
         """
         try:
+            if self.sheet_id:
+                return self.sheet_id
             if not self.sheet_url:
                 logger.info("No sheet URL provided, loading from config.")
                 self.sheet_id = self.config['sheets']['sheet_id']
@@ -118,3 +120,31 @@ class GSheetHandler:
 
         except Exception as e:
             logger.error(f"Failed to append DataFrame to sheet: {e}")
+    
+    def fetch_taxonomy_rows(self):
+        """
+        Loads taxonomy sheet into a list of dictionaries and returns a timestamp.
+        Returns:
+            rows (list[dict])
+            timestamp (datetime)
+        """
+        try:
+            df = self.load_sheet_as_df()
+            if df is None or df.empty:
+                raise CustomException("Taxonomy sheet is empty.")
+
+            # Convert to list of dict rows
+            rows = df.to_dict(orient="records")
+
+            # Determine sheet timestamp (last modified time)
+            # Google Sheets does not provide timestamp directly → so we use NOW.
+            # If you want real timestamps, we need Drive API.
+            from datetime import datetime
+            timestamp = datetime.utcnow()
+
+            logger.info(f"Fetched {len(rows)} taxonomy rows from Google Sheet.")
+            return rows, timestamp
+
+        except Exception as e:
+            logger.error(f"Failed fetching taxonomy rows: {e}")
+            raise CustomException(e)

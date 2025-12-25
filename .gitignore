@@ -8,3 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+credentials.json
+credentials_1.json
+token.json
+*.log
+.vscode/
+
+#env variables
+.env
