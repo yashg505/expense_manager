@@ -14,6 +14,7 @@ paths:
   taxonomy_meta: "data/taxonomy.meta.json"
 
   main_db: "data/main_data.db"
+  main_index: "data/main_data.index"
   image_metadata_db: "data/image_metadata.db"
   corrections_db: "data/corrections.db"
 

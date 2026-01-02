@@ -1,156 +1,63 @@
-from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
 import json
 import sys
 
-from src.llm.openai_client import OpenAIClient
 from src.logger import get_logger
 from src.exception import CustomException
-
+from src.models import ParserResponse
 
 logger = get_logger(__name__)
-
-
-# -----------------------------------------------------------
-# Data Models
-# -----------------------------------------------------------
-
-@dataclass
-class ReceiptHeader:
-    date: Optional[str]
-    time: Optional[str]
-    shop: Optional[str]
-
-
-@dataclass
-class ParsedItem:
-    item: str
-    type: str
-    item_count: int
-    quantity_kg_l: Optional[float]
-    final_price: float
-
-
-@dataclass
-class ParsedReceipt:
-    header: ReceiptHeader
-    items: List[ParsedItem]
-
 
 # -----------------------------------------------------------
 # Parser Agent
 # -----------------------------------------------------------
+PARSER_PROMPT = """
+You are an expert at extracting structured data from receipts. Given the OCR text from a receipt, extract the relevant information.
+Take care of item type field as there are different names for Apples like Pink Lady Kids Apples,
+or Fairtrade Org. Yellow Bananas for Banana. Take care of the shop name as well, don't include the address or other details.
+Don't mess up the dates.
+Extract the merchant name. If the name is generic (like 'Supermarket'), look for brand names in the items
+or loyalty program names to determine the specific store brand.
 
-class Parser:
-    """
-    LLM-based parser that extracts:
-      - date, time, shop
-      - per-item: item, type, item_count, quantity_kg_l, final_price
-    from messy OCR text.
-    """
-
-    def __init__(self, llm: Optional[OpenAIClient] = None):
-        self.llm = llm or OpenAIClient()
-        logger.info("Parser initialized with LLM backend")
-
-    # -------------------------------------------------------
-    def parse(self, ocr_text: str) -> ParsedReceipt:
-        """Main entry → return ParsedReceipt dataclass."""
-        try:
-            prompt = self._build_prompt(ocr_text)
-            llm_output = self.llm.chat(prompt)
-
-            logger.debug("LLM raw output: %s", llm_output)
-
-            structured = self._validate_and_convert(llm_output)
-            logger.info("Parser extracted %s items", len(structured["items"]))
-
-            return self._to_dataclasses(structured)
-
-        except Exception as e:
-            logger.error("Parser failed: %s", e)
-            raise CustomException(e, sys)
-
-    # -------------------------------------------------------
-    def _build_prompt(self, text: str) -> str:
-        """Prompt that enforces strict JSON output."""
-        return f"""
-You are an expert receipt parsing assistant.
-
-Extract structured data from the OCR text provided below.
-
-OCR TEXT:
+Receipt OCR Extracted text: 
 {text}
-
-Your task:
-1. Extract the *receipt-level* details:
-   - date
-   - time
-   - shop
-
-2. Extract each purchased item with:
-   - item: product name
-   - type: short descriptive type inferred from item name
-   - item_count: integer (default 1 if not present)
-   - quantity_kg_l: numeric value or null (weight/volume)
-   - final_price: float
-
-3. Ignore TOTAL, TAX, DISCOUNT, store footer, and extra text.
-
-Return ONLY valid JSON in this exact format:
-
-{
-  "date": "DD.MM.YYYY",
-  "time": "HH:MM:SS",
-  "shop": "string",
-  "items": [
-    {
-      "item": "Protein Bar",
-      "type": "Protein Bar",
-      "item_count": 2,
-      "quantity_kg_l": 2,
-      "final_price": 5.00
-    }
-  ]
-}
-
-No explanations. No comments. JSON only.
 """
 
-    # -------------------------------------------------------
-    def _validate_and_convert(self, output: str) -> Dict[str, Any]:
-        """Ensure LLM output is valid JSON."""
-        try:
-            data = json.loads(output)
-            return data
+def parse_receipt(
+    text: str,
+    llm_client,
+) -> ParserResponse:
+    """
+    Parse raw OCR receipt text into structured data using the LLM client's 
+    built-in validation logic.
+    """
+    logger.info("Initiating receipt parsing logic.")
 
-        except json.JSONDecodeError as je:
-            logger.error("Parser: invalid JSON returned by LLM: %s", je)
-            raise
+    try:
+        if not text or not text.strip():
+            logger.error("Attempted to parse empty OCR text.")
+            raise ValueError("Empty OCR text provided")
 
-    # -------------------------------------------------------
-    def _to_dataclasses(self, data: Dict[str, Any]) -> ParsedReceipt:
-        """Convert parsed JSON into strong dataclasses."""
+        prompt = PARSER_PROMPT.format(text=text)
+
+        # This utilizes the verbose logic we built into BaseLLM.
+        response = llm_client.generate(
+            prompt=prompt,
+            response_model=ParserResponse 
+        )
+
+        logger.debug(f"LLM Response received. Provider: {response.provider}")
+
+        if isinstance(response.content, ParserResponse):
+            logger.info("Successfully parsed receipt into ParserResponse object.")
+            return response.content
         
-        header = ReceiptHeader(
-            date=data.get("date"),
-            time=data.get("time"),
-            shop=data.get("shop")
-        )
+        if isinstance(response.content, str):
+            logger.warning("LLM returned string instead of object. Attempting manual parse.")
+            parsed_data = json.loads(response.content)
+            return ParserResponse.model_validate(parsed_data)
 
-        items = []
-        for item in data.get("items", []):
-            items.append(
-                ParsedItem(
-                    item=item.get("item", "").strip(),
-                    type=item.get("type", "").strip(),
-                    item_count=int(item.get("item_count", 1)),
-                    quantity_kg_l=item.get("quantity_kg_l"),
-                    final_price=float(item.get("final_price", 0.0)),
-                )
-            )
+        raise ValueError(f"Unexpected content type: {type(response.content)}")
 
-        return ParsedReceipt(
-            header=header,
-            items=items
-        )
+    except Exception as exc:
+        logger.error(f"Receipt parsing failed: {str(exc)}", exc_info=True)
+        raise CustomException(exc, sys)
