@@ -1,6 +1,9 @@
 import streamlit as st
-from src.components.navbar import render_navbar
-from src.components.image_uploader import upload_images
+import dotenv
+from expense_manager.components.navbar import render_navbar
+from expense_manager.components.image_uploader import upload_images
+
+dotenv.load_dotenv()
 
 # Set page config once at the entry point
 st.set_page_config(page_title="Expense Manager - Upload", layout="wide")
@@ -16,7 +19,7 @@ images = upload_images()
 if images:
     st.divider()
     st.info(f"Loaded {len(images)} images. Ready to process?")
-    if st.button("Go to Review & Categorize", type="primary", use_container_width=True):
+    if st.button("Go to Review & Categorize", type="primary", width="stretch"):
         st.switch_page("pages/page2_review.py")
 
 # Debugging session state (optional, can be removed)

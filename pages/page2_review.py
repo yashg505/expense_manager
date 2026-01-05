@@ -5,18 +5,19 @@ import os
 import sys
 import sqlite3
 
-from src.components.navbar import render_navbar
-from src.components.ocr_handler import OCRHandler
-from src.agents.parser import parse_receipt
-from src.agents.classifier import ClassifierAgent
-from src.llm.openai_client import OpenAIClient
-from src.dbs.taxonomy_db import TaxonomyDB
-from src.dbs.corrections_db import CorrectionsDB
-from src.dbs.main_db import MainDB
-from src.utils.load_config import load_config_file
-from src.models.parsers import ParserResponse, ItemClassification, Price, ParsedItem
-from src.integration.gsheet_handler import GSheetHandler
-from src.logger import get_logger
+from expense_manager.components.navbar import render_navbar
+from expense_manager.components.ocr_handler import OCRHandler
+from expense_manager.agents.parser import parse_receipt
+from expense_manager.agents.classifier import ClassifierAgent
+from expense_manager.llm.openai_client import OpenAIClient
+from expense_manager.dbs.taxonomy_db import TaxonomyDB
+from expense_manager.dbs.corrections_db import CorrectionsDB
+from expense_manager.dbs.main_db import MainDB
+from expense_manager.utils.load_config import load_config_file
+from expense_manager.models.parsers import ParserResponse, ItemClassification, Price, ParsedItem
+from expense_manager.integration.gsheet_handler import GSheetHandler
+from expense_manager.logger import get_logger
+from expense_manager.dbs.image_metadata import ImageMetadataDB
 
 logger = get_logger(__name__)
 
@@ -39,6 +40,8 @@ def initialize_agents():
         st.session_state['corrections_db'] = CorrectionsDB()
     if 'main_db' not in st.session_state:
         st.session_state['main_db'] = MainDB()
+    if 'metadata_db' not in st.session_state:
+        st.session_state['metadata_db'] = ImageMetadataDB()
 
 initialize_agents()
 
@@ -88,6 +91,15 @@ def process_receipt(file_id):
 
             img_obj.processed = True
             st.session_state['images'][file_id] = img_obj
+            
+            # Persist updated state (now with ocr_text and parser_response)
+            st.session_state['metadata_db'].upsert_image(
+                file_id=img_obj.file_id,
+                file_name=img_obj.file_name,
+                fingerprint=img_obj.fingerprint,
+                image_path=img_obj.image_path,
+                state_dict=img_obj.model_dump()
+            )
             
         except Exception as e:
             logger.error(f"Pipeline failed for {img_obj.file_name}: {e}")
@@ -224,7 +236,7 @@ for fid, img_obj in st.session_state['images'].items():
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            st.image(img_obj.image_path, use_container_width=True)
+            st.image(img_obj.image_path, width="stretch")
             
         with col2:
             # Header Edits
@@ -269,7 +281,7 @@ for fid, img_obj in st.session_state['images'].items():
                 disabled=["predicted_id"],
                 key=f"editor_{fid}",
                 hide_index=True,
-                use_container_width=True
+                width="stretch"
             )
             
             if st.button("Confirm & Save Receipt", key=f"btn_{fid}", type="primary"):
@@ -287,14 +299,16 @@ confirmed_fids = [fid for fid, img in st.session_state['images'].items()
 if confirmed_fids:
     st.divider()
     st.subheader(f"🚀 Ready to Export ({len(confirmed_fids)} receipts)")
-    if st.button("Export All Confirmed to Google Sheets", type="primary", use_container_width=True):
+    if st.button("Export All Confirmed to Google Sheets", type="primary", width="stretch"):
         if export_to_gsheets(confirmed_fids):
             for fid in confirmed_fids:
                 st.session_state['images'][fid].metadata['exported'] = True
+                # Update status in persistent DB
+                st.session_state['metadata_db'].update_status(fid, 'uploaded')
             
             st.balloons()
             st.success("🎉 Data successfully uploaded to Google Sheets!")
             if st.button("Start New Batch"):
                 st.session_state['images'] = {}
                 st.session_state['fingerprints'] = set()
-                st.switch_page("pages/page1_upload.py")
+                st.switch_page("main.py")

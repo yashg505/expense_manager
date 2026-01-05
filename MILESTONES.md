@@ -13,29 +13,29 @@ This document outlines the development roadmap for the Expense Manager applicati
 
 ## Milestone 2: Interactive Review UI
 *Goal: Allow users to review and correct parsed receipt data in the browser.*
-- [ ] **Review Page (Page 2)**: Implement `pages/page2_review.py` to process images in session state.
-- [ ] **Pipeline Execution**: Add a "Process" button to trigger OCR and LLM parsing for all pending images.
-- [ ] **Data Editor**: Use `st.data_editor` to allow users to manually correct prices, quantities, and dates.
-- [ ] **State Management**: Persist corrections back into the `ReceiptImage` model in session state.
+- [x] **Review Page (Page 2)**: Implement `pages/page2_review.py` to process images in session state.
+- [x] **Pipeline Execution**: Add a "Process" button to trigger OCR and LLM parsing for all pending images.
+- [x] **Data Editor**: Use `st.data_editor` to allow users to manually correct prices, quantities, and dates.
+- [x] **State Management**: Persist corrections back into the `ReceiptImage` model in session state.
 
 ## Milestone 3: Intelligent Classification & Taxonomy
 *Goal: Automatically categorize items and remember user corrections.*
 - [x] **Classification Agent**: Integrate `src/agents/classifier.py` to map items to categories.
 - [x] **Taxonomy Search**: Implement FAISS/Vector search in `src/dbs/faiss_store.py` for semantic category matching.
-- [ ] **Corrections DB**: Wire up `src/dbs/corrections_db.py` to save user category overrides.
-- [ ] **Sync Logic**: Build `src/sync/taxonomy_sync.py` to update the classifier based on new corrections.
+- [x] **Corrections DB**: Wire up `src/dbs/corrections_db.py` to save user category overrides.
+- [x] **Sync Logic**: Build `src/sync/taxonomy_sync.py` to update the classifier based on new corrections.
 
 ## Milestone 4: Persistence & Storage
 *Goal: Save all processed expenses to a local database for historical tracking.*
-- [ ] **Main Database**: Implement `src/dbs/main_db.py` to store finalized receipts and items.
-- [ ] **Metadata Tracking**: Save image hashes and processing timestamps in `src/dbs/image_metadata.py`.
-- [ ] **Dashboard**: Create a basic overview of expenses (totals by category/month).
+- [x] **Main Database**: Implement `src/dbs/main_db.py` to store finalized receipts and items.
+- [x] **Metadata Tracking**: Save image hashes and processing timestamps in `src/dbs/image_metadata.py`.
+- [ ] **Dashboard (v2)**: Create a basic overview of expenses (totals by category/month).
 
 ## Milestone 5: External Integration & Export
 *Goal: Export data to Google Sheets and other external formats.*
-- [ ] **Google Sheets Handler**: Implement `src/integration/gsheet_handler.py`.
-- [ ] **Confirmation Page (Page 3)**: Final summary and "Export" button.
-- [ ] **Export Validation**: Ensure data types match Google Sheets requirements.
+- [x] **Google Sheets Handler**: Implement `src/integration/gsheet_handler.py`.
+- [x] **Confirmation Page (Page 3)**: Final summary and "Export" button.
+- [x] **Export Validation**: Ensure data types match Google Sheets requirements.
 
 ## Milestone 6: Polish & Performance
 - [ ] **Async Processing**: Use threading or background tasks for OCR/LLM calls to keep the UI responsive.

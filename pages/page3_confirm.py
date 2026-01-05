@@ -1,5 +1,5 @@
 import streamlit as st
-from src.components.navbar import render_navbar
+from expense_manager.components.navbar import render_navbar
 
 
 st.success("The data has been uploaded", icon="✅")

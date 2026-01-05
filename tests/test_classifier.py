@@ -1,6 +1,6 @@
 import pytest
-from src.agents.classifier import ClassifierAgent
-from src.models.classifier import ClassificationResult
+from expense_manager.agents.classifier import ClassifierAgent
+from expense_manager.models.classifier import ClassificationResult
 
 @pytest.fixture(scope="module")
 def classifier_agent():

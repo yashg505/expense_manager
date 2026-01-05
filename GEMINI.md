@@ -68,6 +68,6 @@ uv run pytest tests/test_end_to_end.py
 
 - **Code Style**: Follow PEP 8. Use `snake_case` for functions/variables, `PascalCase` for classes.
 - **Type Hinting**: Use Python type hints (`str`, `List`, `Optional`, etc.) consistently.
-- **Error Handling**: Use `src.exception.CustomException` and `src.logger` for tracing.
+- **Error Handling**: Use `expense_manager.exception.CustomException` and `expense_manager.logger` for tracing.
 - **State Management**: Use `streamlit.session_state` for persisting data between pages.
 - **File Storage**: Uploaded images are stored in `artifacts/images/` and referenced by path in `ReceiptImage` models.

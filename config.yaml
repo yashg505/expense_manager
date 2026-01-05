@@ -1,12 +1,14 @@
 credential_file: credentials.json
 
+sheets:
+  sheet_id: "1YLVz3i6R9sYXW3oWfUEtFTMkrXyY6ONB4FohhTf4B8w"
+  sheet_scope:
+    - https://www.googleapis.com/auth/spreadsheets
+    - https://www.googleapis.com/auth/drive
+  worksheet_name: "taxonomy"
+
 taxonomy:
-  sheets:
-    sheet_id: "1YLVz3i6R9sYXW3oWfUEtFTMkrXyY6ONB4FohhTf4B8w"
-    sheet_scope:
-      - https://www.googleapis.com/auth/spreadsheets
-      - https://www.googleapis.com/auth/drive
-    worksheet_name: "taxonomy"
+  # Sheets config moved to top level
 
 paths:
   taxonomy_db: "data/taxonomy.db"
@@ -22,7 +24,7 @@ paths:
 
 llm:
   embedding_model: "text-embedding-3-large"
-  classification_model: "gpt-4o-mini"
+  classification_model: "gpt-4.1"
   temperature: 0.0
 
 faiss:
