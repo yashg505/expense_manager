@@ -1,0 +1,88 @@
+classDiagram
+direction TB
+
+class ReceiptImage {
+  +file_id: str
+  +file_name: str
+  +image_path: str
+  +fingerprint: str
+  +ocr_text: str
+  +parser_response: ParserResponse
+  +processed: bool
+  +metadata: dict
+}
+
+class OCRResult {
+  +text: str
+  +raw_data: Any
+  +success: bool
+  +error: str
+  +backend: str
+}
+
+class Price {
+  +amount: float
+  +discount: float
+}
+
+class ItemClassification {
+  +item_type: str
+  +taxonomy_id: str
+  +category: str
+  +sub_category_i: str
+  +sub_category_ii: str
+}
+
+class BaseParsedItem {
+  +item: str
+  +item_type: str
+  +item_count: int
+  +price: Price
+}
+
+class ParsedItem {
+  +classification: ItemClassification
+}
+
+class ParserLLMResponse {
+  +date: str
+  +time: str
+  +shop: str
+  +parsed_items: BaseParsedItem[]
+}
+
+class ParserResponse {
+  +parsed_items: ParsedItem[]
+}
+
+class ClassificationChoice {
+  +chosen_id: str
+  +reasoning: str
+}
+
+class ClassificationResult {
+  +category: str
+  +sub_category_i: str
+  +sub_category_ii: str
+  +score: float
+  +taxonomy_id: str
+}
+
+class LLMResponse {
+  +content: Any
+  +raw_response: str
+  +model_name: str
+  +prompt_tokens: int
+  +completion_tokens: int
+  +total_tokens: int
+  +latency_ms: float
+  +provider: str
+  +metadata: dict
+}
+
+ParserLLMResponse "1" o-- "*" BaseParsedItem
+ParserResponse "1" o-- "*" ParsedItem
+ParsedItem --|> BaseParsedItem
+ParsedItem --> ItemClassification
+BaseParsedItem --> Price
+ReceiptImage --> ParserResponse

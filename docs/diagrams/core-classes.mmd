@@ -1,0 +1,79 @@
+classDiagram
+direction LR
+
+class OCRHandler {
+  +run(image_path) OCRResult
+}
+
+class ReceiptImage {
+  +file_id: str
+  +file_name: str
+  +image_path: str
+  +fingerprint: str
+  +ocr_text: str
+  +parser_response: ParserResponse
+  +processed: bool
+  +metadata: dict
+}
+
+class ClassifierAgent {
+  +classify_item(item_name, shop_name, item_type) ClassificationResult
+}
+
+class TaxonomyDB {
+  +get_all_rows()
+  +get_row_by_id(row_id)
+  +validate_row_id(row_id) bool
+  +build_vector_index() int
+  +load_faiss()
+  +search_vector(query_embedding, k)
+}
+
+class CorrectionsDB {
+  +add_correction(shop_name, item_text, taxonomy_id)
+  +get_correction(shop_name, item_text) str
+}
+
+class MainDB {
+  +insert_finalized_items(file_id, shop_name, receipt_date, items)
+  +get_historical_exact_match(shop_name, item_text) str
+  +load_index() bool
+  +rebuild_index()
+}
+
+class ImageMetadataDB {
+  +upsert_image(file_id, file_name, fingerprint, image_path, state_dict)
+  +update_status(file_id, status)
+  +get_by_fingerprint(fingerprint)
+}
+
+class FaissStore {
+  +build_new_index(vectors)
+  +load()
+  +search(query_vector, k)
+}
+
+class BaseLLM {
+  +generate(prompt, response_model) LLMResponse
+}
+
+class OpenAIClient
+class GeminiClient
+class LLMResponse
+class OCRResult
+class ParserResponse
+class ClassificationResult
+
+ReceiptImage --> ParserResponse : parser_response
+OCRHandler --> OCRResult : returns
+ClassifierAgent --> TaxonomyDB
+ClassifierAgent --> CorrectionsDB
+ClassifierAgent --> MainDB
+ClassifierAgent ..> BaseLLM : llm_client
+TaxonomyDB --> FaissStore
+MainDB --> FaissStore
+ImageMetadataDB ..> ReceiptImage : persists state
+
+BaseLLM <|-- OpenAIClient
+BaseLLM <|-- GeminiClient
+BaseLLM --> LLMResponse
