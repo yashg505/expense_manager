@@ -7,7 +7,7 @@ An intelligent expense management system that uses OCR (RapidOCR) and LLMs (Open
 - **`src/`**: Core source code.
     - **`agents/`**: Logic for parsing (`parser.py`) and classification (`classifier.py`).
     - **`components/`**: UI components (e.g., `image_uploader.py`, `ocr_handler.py`).
-    - **`dbs/`**: Database interactions (SQLite, FAISS) for taxonomy and storage.
+    - **`dbs/`**: Database interactions (Postgres) for taxonomy and storage.
     - **`integration/`**: External service handlers (e.g., `gsheet_handler.py`).
     - **`llm/`**: OpenAI/LLM client wrappers.
     - **`models/`**: Pydantic data models (`receipt.py`, `ocr_result.py`).
@@ -61,7 +61,7 @@ uv run pytest tests/test_end_to_end.py
 - **OCR**: RapidOCR (via `rapidocr-onnxruntime`)
 - **LLM**: OpenAI (GPT models)
 - **Data Validation**: Pydantic
-- **Database**: SQLite (metadata, structured data), FAISS (vector search for taxonomy)
+- **Database**: PostgreSQL (metadata, structured data, vector search for taxonomy)
 - **Image Processing**: Pillow, OpenCV
 
 ## Development Conventions

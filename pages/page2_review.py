@@ -1,9 +1,5 @@
 import streamlit as st
 import pandas as pd
-from PIL import Image
-import os
-import sys
-import sqlite3
 
 from expense_manager.components.navbar import render_navbar
 from expense_manager.components.ocr_handler import OCRHandler
@@ -14,7 +10,7 @@ from expense_manager.dbs.taxonomy_db import TaxonomyDB
 from expense_manager.dbs.corrections_db import CorrectionsDB
 from expense_manager.dbs.main_db import MainDB
 from expense_manager.utils.load_config import load_config_file
-from expense_manager.models.parsers import ParserResponse, ItemClassification, Price, ParsedItem
+from expense_manager.models.parsers import ItemClassification
 from expense_manager.integration.gsheet_handler import GSheetHandler
 from expense_manager.logger import get_logger
 from expense_manager.dbs.image_metadata import ImageMetadataDB
@@ -46,6 +42,12 @@ def initialize_agents():
 initialize_agents()
 
 # --- Helper Functions ---
+def reset_batch_state():
+    """Clears uploader + image session state for a fresh batch."""
+    st.session_state.pop("receipt_uploader", None)
+    st.session_state["images"] = {}
+    st.session_state["fingerprints"] = set()
+    st.session_state.pop("export_success", None)
 
 def get_taxonomy_options():
     """Returns a list of full_path strings from TaxonomyDB."""
@@ -113,6 +115,7 @@ def save_receipt_edits(file_id, edited_data, header_info):
     # 1. Update Header Info
     original_parser.shop = header_info['shop']
     original_parser.date = header_info['date']
+    original_parser.time = header_info['time']
     
     # 2. Update Items and Check for Corrections
     new_items = []
@@ -140,7 +143,9 @@ def save_receipt_edits(file_id, edited_data, header_info):
             "item": row['Item Name'],
             "taxonomy_id": new_tax_id,
             "item_count": row['Qty'],
-            "price": row['Price']
+            "price": row['Price'],
+            "discount": row.get('Discount', 0),
+            "item_type": row.get('item_type')
         })
 
     # 3. Save to MainDB (Historical persistence)
@@ -148,6 +153,7 @@ def save_receipt_edits(file_id, edited_data, header_info):
         file_id=file_id,
         shop_name=header_info['shop'],
         receipt_date=header_info['date'],
+        receipt_time=header_info['time'],
         items=new_items
     )
     
@@ -158,7 +164,8 @@ def save_receipt_edits(file_id, edited_data, header_info):
 def export_to_gsheets(confirmed_fids):
     """Fetches confirmed items from MainDB and pushes to Google Sheets."""
     try:
-        handler = GSheetHandler()
+        sheet_type = config['sheets'].get('expense_sheet_type', 'expense')
+        handler = GSheetHandler(sheet_type=sheet_type)
         all_data = []
         
         taxonomy_rows = st.session_state['taxonomy_db'].get_all_rows()
@@ -166,22 +173,23 @@ def export_to_gsheets(confirmed_fids):
         
         with st.spinner("Preparing data for export..."):
             for fid in confirmed_fids:
-                with sqlite3.connect(config["paths"]["main_db"]) as conn:
-                    conn.row_factory = sqlite3.Row
-                    cursor = conn.execute("SELECT * FROM processed_items WHERE file_id = ?", (fid,))
-                    rows = [dict(r) for r in cursor.fetchall()]
+                # Use MainDB abstraction
+                rows = st.session_state['main_db'].get_items_by_file_id(fid)
                 
                 for row in rows:
                     tax_info = tax_map.get(str(row['taxonomy_id']), {})
                     export_row = {
                         "Date": row['receipt_date'],
+                        "Time": row.get('receipt_time'),
                         "Shop": row['shop_name'],
                         "Item": row['item_text'],
+                        "Type": row.get('item_type'),
                         "Category": tax_info.get('category', 'Uncategorized'),
                         "Sub Category I": tax_info.get('sub_category_i', ''),
                         "Sub Category II": tax_info.get('sub_category_ii', ''),
                         "Quantity": row['quantity'],
                         "Price": row['price'],
+                        "Discount": row.get('discount', 0),
                         "Total": row['total']
                     }
                     all_data.append(export_row)
@@ -240,11 +248,13 @@ for fid, img_obj in st.session_state['images'].items():
             
         with col2:
             # Header Edits
-            h_col1, h_col2 = st.columns(2)
+            h_col1, h_col2, h_col3 = st.columns(3)
             with h_col1:
                 new_shop = st.text_input("Shop Name", value=img_obj.parser_response.shop, key=f"shop_{fid}")
             with h_col2:
                 new_date = st.text_input("Date (YYYY-MM-DD)", value=img_obj.parser_response.date, key=f"date_{fid}")
+            with h_col3:
+                new_time = st.text_input("Time (HH:MM:SS)", value=img_obj.parser_response.time, key=f"time_{fid}")
             
             # Prepare Table Data
             table_rows = []
@@ -256,8 +266,10 @@ for fid, img_obj in st.session_state['images'].items():
                     "Item Name": item.item,
                     "Qty": item.item_count,
                     "Price": item.price.amount,
+                    "Discount": item.price.discount,
                     "Category Path": current_path,
-                    "predicted_id": current_tax_id 
+                    "predicted_id": current_tax_id,
+                    "item_type": item.item_type
                 })
             
             df = pd.DataFrame(table_rows)
@@ -276,19 +288,22 @@ for fid, img_obj in st.session_state['images'].items():
                         options=taxonomy_options,
                         required=True,
                     ),
-                    "predicted_id": None # Hide tracking column
+                    "predicted_id": None, # Hide tracking column
+                    "item_type": None
                 },
-                disabled=["predicted_id"],
+                disabled=["predicted_id", "item_type"],
                 key=f"editor_{fid}",
                 hide_index=True,
                 width="stretch"
             )
             
             if st.button("Confirm & Save Receipt", key=f"btn_{fid}", type="primary"):
+                # Map edited data back to clean items for MainDB
+                final_rows = edited_df.to_dict('records')
                 save_receipt_edits(
                     file_id=fid,
-                    edited_data=edited_df.to_dict('records'),
-                    header_info={'shop': new_shop, 'date': new_date}
+                    edited_data=final_rows,
+                    header_info={'shop': new_shop, 'date': new_date, 'time': new_time}
                 )
                 st.rerun()
 
@@ -308,7 +323,9 @@ if confirmed_fids:
             
             st.balloons()
             st.success("🎉 Data successfully uploaded to Google Sheets!")
-            if st.button("Start New Batch"):
-                st.session_state['images'] = {}
-                st.session_state['fingerprints'] = set()
-                st.switch_page("main.py")
+            st.session_state["export_success"] = True
+
+if st.session_state.get("export_success"):
+    if st.button("Start New Batch"):
+        reset_batch_state()
+        st.switch_page("main.py")

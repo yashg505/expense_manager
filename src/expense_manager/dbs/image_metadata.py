@@ -1,5 +1,13 @@
+"""
+image_metadata.py
+
+Manages image metadata and persistent state tracking.
+Stores the full JSON representation of ReceiptImage for debugging and persistence.
+"""
+
 import os
-import sqlite3
+import psycopg2
+from psycopg2.extras import DictCursor
 import json
 import sys
 from typing import Optional, Dict, Any
@@ -11,43 +19,34 @@ from expense_manager.utils.load_config import load_config_file
 logger = get_logger(__name__)
 
 class ImageMetadataDB:
-    """
-    Manages image metadata and persistent state tracking.
-    Stores the full JSON representation of ReceiptImage for debugging and persistence.
-    """
-
     def __init__(self):
         try:
-            config = load_config_file()
-            self.path = config["paths"]["image_metadata_db"]
+            self.conn_str = os.getenv("NEON_CONN_STR")
+            if not self.conn_str:
+                raise CustomException("Database connection string (NEON_CONN_STR) not found.")
+
             self._init_db()
-            logger.info(f"Initialized ImageMetadataDB at {self.path}")
+            logger.info("Initialized ImageMetadataDB (Postgres).")
         except Exception as e:
             raise CustomException(e, sys)
 
     def _init_db(self):
         """Initializes the database schema and performs simple migrations."""
         try:
-            with sqlite3.connect(self.path) as conn:
-                # 1. Create table if not exists
-                conn.execute('''
-                    CREATE TABLE IF NOT EXISTS image_metadata (
-                        file_id TEXT PRIMARY KEY,
-                        file_name TEXT,
-                        fingerprint TEXT UNIQUE,
-                        image_path TEXT,
-                        json_state TEXT,
-                        status TEXT DEFAULT 'pending',
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
-                
-                # 2. Migration: Add 'status' column if it's missing (for existing databases)
-                cursor = conn.execute("PRAGMA table_info(image_metadata)")
-                columns = [row[1] for row in cursor.fetchall()]
-                if 'status' not in columns:
-                    logger.info("Migrating database: Adding 'status' column to image_metadata")
-                    conn.execute("ALTER TABLE image_metadata ADD COLUMN status TEXT DEFAULT 'pending'")
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor() as cur:
+                    # 1. Create table if not exists
+                    cur.execute('''
+                        CREATE TABLE IF NOT EXISTS image_metadata (
+                            file_id TEXT PRIMARY KEY,
+                            file_name TEXT,
+                            fingerprint TEXT UNIQUE,
+                            image_path TEXT,
+                            json_state TEXT,
+                            status TEXT DEFAULT 'pending',
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
 
             logger.debug("Image metadata schema verified and migrated.")
         except Exception as e:
@@ -62,32 +61,31 @@ class ImageMetadataDB:
         try:
             json_state = json.dumps(state_dict)
             
-            with sqlite3.connect(self.path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor(cursor_factory=DictCursor) as cursor:
                 
-                # Check for existing image by fingerprint
-                cursor.execute("SELECT file_id, status FROM image_metadata WHERE fingerprint = ?", (fingerprint,))
-                existing = cursor.fetchone()
+                    # Check for existing image by fingerprint
+                    cursor.execute("SELECT file_id, status FROM image_metadata WHERE fingerprint = %s", (fingerprint,))
+                    existing = cursor.fetchone()
                 
-                if existing:
-                    if existing['status'] == 'uploaded':
-                        logger.warning(f"Attempted to modify already uploaded image: {fingerprint}")
-                        return # Skip update for finalized data
-                    
-                    # If file_id changed but fingerprint is same (re-upload), 
-                    # we should remove the old file_id entry to avoid unique constraint issues
-                    if existing['file_id'] != file_id:
-                        conn.execute("DELETE FROM image_metadata WHERE file_id = ?", (existing['file_id'],))
+                    if existing:
+                        if existing['status'] == 'uploaded':
+                            logger.warning(f"Attempted to modify already uploaded image: {file_name}")
+                            return # Skip update for finalized data
+                        
+                        # If file_id changed but fingerprint is same (re-upload), 
+                        # we should remove the old file_id entry to avoid unique constraint issues
+                        if existing['file_id'] != file_id:
+                            cursor.execute("DELETE FROM image_metadata WHERE file_id = %s", (existing['file_id'],))
 
-                # Now safe to perform the upsert
-                conn.execute('''
-                    INSERT INTO image_metadata (file_id, file_name, fingerprint, image_path, json_state, updated_at)
-                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    ON CONFLICT(file_id) DO UPDATE SET
-                        json_state = excluded.json_state,
-                        updated_at = CURRENT_TIMESTAMP
-                ''', (file_id, file_name, fingerprint, image_path, json_state))
+                    # Now safe to perform the upsert
+                    cursor.execute('''
+                        INSERT INTO image_metadata (file_id, file_name, fingerprint, image_path, json_state, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT(file_id) DO UPDATE SET
+                            json_state = EXCLUDED.json_state,
+                            updated_at = CURRENT_TIMESTAMP
+                    ''', (file_id, file_name, fingerprint, image_path, json_state))
             
             logger.debug(f"Metadata and state persisted for file_id: {file_id}")
         except Exception as e:
@@ -97,12 +95,13 @@ class ImageMetadataDB:
     def update_status(self, file_id: str, status: str):
         """Updates the status of a receipt (e.g., to 'uploaded')."""
         try:
-            with sqlite3.connect(self.path) as conn:
-                conn.execute('''
-                    UPDATE image_metadata 
-                    SET status = ?, updated_at = CURRENT_TIMESTAMP 
-                    WHERE file_id = ?
-                ''', (status, file_id))
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor() as cur:
+                    cur.execute('''
+                        UPDATE image_metadata 
+                        SET status = %s, updated_at = CURRENT_TIMESTAMP 
+                        WHERE file_id =%s
+                    ''', (status, file_id))
             logger.info(f"Status for {file_id} updated to '{status}'")
         except Exception as e:
             logger.error(f"Failed to update status for {file_id}: {e}")
@@ -111,12 +110,12 @@ class ImageMetadataDB:
     def get_by_fingerprint(self, fingerprint: str) -> Optional[dict]:
         """Check if an image with this fingerprint already exists."""
         try:
-            with sqlite3.connect(self.path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM image_metadata WHERE fingerprint = ?", (fingerprint,))
-                row = cursor.fetchone()
-                return dict(row) if row else None
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor(cursor_factory=DictCursor) as cursor:
+                    cursor.execute("SELECT * FROM image_metadata WHERE fingerprint = %s", (fingerprint,))
+                    row = cursor.fetchone()
+                    return dict(row) if row else None
+
         except Exception as e:
             logger.error(f"Error fetching by fingerprint: {e}")
             raise CustomException(e, sys)
@@ -125,11 +124,12 @@ class ImageMetadataDB:
         """Retrieves all saved states, keyed by file_id."""
         try:
             states = {}
-            with sqlite3.connect(self.path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute("SELECT file_id, json_state FROM image_metadata")
-                for row in cursor.fetchall():
-                    states[row['file_id']] = json.loads(row['json_state'])
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor(cursor_factory=DictCursor) as cursor:
+                    cursor.execute("SELECT file_id, json_state FROM image_metadata")
+                    rows = cursor.fetchall()
+                    for row in rows:
+                        states[row['file_id']] = json.loads(row['json_state'])
             return states
         except Exception as e:
             logger.error(f"Error fetching all states: {e}")
@@ -141,16 +141,17 @@ class ImageMetadataDB:
             return []
 
         try:
-            placeholders = ",".join("?" * len(statuses))
+            # Postgres uses %s
+            placeholders = ",".join(["%s"] * len(statuses))
             query = f"""
-                SELECT file_id, image_path, status
+                SELECT file_id, image_path, status, fingerprint
                 FROM image_metadata
                 WHERE status IN ({placeholders})
             """
-            with sqlite3.connect(self.path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute(query, tuple(statuses))
-                return [dict(row) for row in cursor.fetchall()]
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor(cursor_factory=DictCursor) as cursor:
+                    cursor.execute(query, tuple(statuses))
+                    return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error fetching images by status: {e}")
             raise CustomException(e, sys)
@@ -180,10 +181,12 @@ class ImageMetadataDB:
                 missing_files += 1
 
         if file_ids:
-            placeholders = ",".join("?" * len(file_ids))
+            # Postgres uses %s
+            placeholders = ",".join(["%s"] * len(file_ids))
             query = f"DELETE FROM image_metadata WHERE file_id IN ({placeholders})"
-            with sqlite3.connect(self.path) as conn:
-                conn.execute(query, tuple(file_ids))
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(query, tuple(file_ids))
 
         logger.info(
             "Cleanup %s: removed %s files, %s missing, %s rows",

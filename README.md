@@ -9,7 +9,7 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
 ### Key Features
 - **Intelligent OCR**: Uses RapidOCR and PaddleOCR for high-accuracy text extraction from images.
 - **LLM-Powered Parsing**: Extracts structured receipt data (vendor, date, total, line items) using GPT-4 or Gemini.
-- **Smart Classification**: Automatically assigns categories to items based on a taxonomy stored in FAISS (vector database) and SQLite.
+- **Smart Classification**: Automatically assigns categories to items based on a taxonomy stored in PostgreSQL (using pgvector for semantic search) and SQLite.
 - **Deduplication**: Uses image fingerprinting (ImageHash) to prevent duplicate receipt uploads.
 - **Streamlit UI**: A user-friendly, multi-page web interface for uploading, reviewing, and confirming expenses.
 - **Google Sheets Integration**: Seamlessly syncs confirmed expenses to a centralized spreadsheet.
@@ -19,7 +19,7 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
 - **OCR**: [RapidOCR](https://github.com/RapidAI/RapidOCR), [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)
 - **LLM**: OpenAI (GPT-4), Google Gemini
 - **Data Validation**: [Pydantic](https://docs.pydantic.dev/)
-- **Database**: SQLite (Metadata), FAISS (Vector Search for Taxonomy)
+- **Database**: PostgreSQL (Metadata, Taxonomy, Vector Search via pgvector)
 - **Image Processing**: OpenCV, Pillow, ImageHash
 - **Dependency Management**: [uv](https://github.com/astral-sh/uv)
 
@@ -28,13 +28,13 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
 ├── src/
 │   ├── agents/          # Parsing (LLM) and Classification logic
 │   ├── components/      # UI components (uploader, navbar, etc.)
-│   ├── dbs/             # Database handlers (SQLite, FAISS)
+│   ├── dbs/             # Database handlers (Postgres)
 │   ├── integration/     # Google Sheets handler
 │   ├── llm/             # OpenAI and Gemini client wrappers
 │   ├── models/          # Pydantic data models
 │   └── utils/           # Logging, image fingerprinting, prompt builders
 ├── pages/               # Streamlit multi-page application logic
-├── data/                # SQLite databases and FAISS indexes
+├── data/                # SQLite databases (Legacy/Migrating)
 ├── artifacts/           # Uploaded images and temporary assets
 └── tests/               # Pytest suite
 ```
@@ -44,7 +44,7 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
 ### Prerequisites
 - Python 3.10+
 - [uv](https://github.com/astral-sh/uv) package manager
-- Google Cloud Project credentials (`credentials.json`) for Sheets integration
+- PostgreSQL database with `pgvector` extension enabled (e.g., Neon).
 
 ### Installation
 1. Clone the repository.
@@ -58,9 +58,9 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
    ```env
    OPENAI_API_KEY=your_openai_key
    GEMINI_API_KEY=your_gemini_key
+   NEON_CONN_STR=postgresql://user:password@host/dbname
    ```
-2. Place your Google Cloud `credentials.json` in the root directory (as specified in `config.yaml`).
-3. Update `config.yaml` with your specific `sheet_id` and other preferences if necessary.
+2. Update `config.yaml` with your specific `sheet_id` and other preferences if necessary.
 
 ## 💻 Usage
 

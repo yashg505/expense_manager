@@ -43,10 +43,7 @@ class ClassifierAgent:
             self.corrections_db = CorrectionsDB()
             self.main_db = MainDB()
             self.llm_client = llm_client
-            
-            # Ensure indices are loaded
-            self.taxonomy_db.load_faiss()
-            self.main_db.load_index()
+
             
             logger.info("ClassifierAgent initialized with enhanced waterfall logic.")
         except Exception as e:

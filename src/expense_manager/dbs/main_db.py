@@ -1,14 +1,12 @@
-import sqlite3
+import psycopg2
+from psycopg2.extras import DictCursor
+import os
 import sys
-import json
-from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from expense_manager.logger import get_logger
 from expense_manager.exception import CustomException
-from expense_manager.utils.load_config import load_config_file
 from expense_manager.utils.embed_texts import embed_texts
-from expense_manager.dbs.faiss_store import FaissStore
 
 logger = get_logger(__name__)
 
@@ -20,38 +18,41 @@ class MainDB:
 
     def __init__(self):
         try:
-            config = load_config_file()
-            self.db_path = config["paths"]["main_db"]
-            self.index_path = config["paths"]["main_index"]
-            self.meta_path = str(Path(self.index_path).with_suffix('.json')) # e.g. main_data.index.json
+            self.conn_str = os.getenv("NEON_CONN_STR")
+            if not self.conn_str:
+                raise CustomException("Database connection string (NEON_CONN_STR) not found.")
             
             self._init_db()
             
-            self.faiss = None
-            self.historical_ids = [] # List of (item_text, taxonomy_id)
-            
-            logger.info(f"Initialized MainDB at {self.db_path}")
+            logger.info("Initialized MainDB (Postgres).")
         except Exception as e:
             raise CustomException(e, sys)
 
     def _init_db(self):
-        """Initializes the SQLite schema for processed items."""
+        """Initializes the PostgreSQL schema for processed items."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute('''
-                    CREATE TABLE IF NOT EXISTS processed_items (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        file_id TEXT NOT NULL,
-                        item_text TEXT NOT NULL,
-                        taxonomy_id TEXT NOT NULL,
-                        quantity INTEGER,
-                        price REAL,
-                        total REAL,
-                        shop_name TEXT,
-                        receipt_date TEXT,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                    cur.execute('''
+                        CREATE TABLE IF NOT EXISTS processed_items (
+                            id SERIAL PRIMARY KEY,
+                            file_id TEXT NOT NULL,
+                            shop_name TEXT,
+                            receipt_date DATE,
+                            receipt_time TIME,
+                            item_text TEXT NOT NULL,
+                            taxonomy_id TEXT NOT NULL,
+                            item_type TEXT,
+                            quantity INTEGER,
+                            price REAL,
+                            total REAL,
+                            discount REAL,
+                            embedding vector(384),
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
+                    
             logger.debug("Main database schema verified.")
         except Exception as e:
             logger.error("Failed to initialize main database schema.")
@@ -82,13 +83,12 @@ class MainDB:
             if not norm_item:
                 return None
 
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                # We use LOWER() in SQL for safety if the data wasn't normalized on insertion
-                cursor.execute("""
-                    SELECT taxonomy_id 
-                    FROM processed_items
-                    WHERE LOWER(shop_name) = ? AND LOWER(item_text) = ?
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT taxonomy_id 
+                        FROM processed_items
+                        WHERE LOWER(shop_name) = %s AND LOWER(item_text) = %s
                     ORDER BY created_at DESC
                     LIMIT 1
                 """, (norm_shop, norm_item))
@@ -103,118 +103,142 @@ class MainDB:
             logger.error(f"Failed to fetch historical exact match for {shop_name}/{item_text}: {e}")
             return None
 
-    def insert_finalized_items(self, file_id: str, shop_name: str, receipt_date: str, items: List[Dict[str, Any]]):
+    def insert_finalized_items(self, file_id: str, shop_name: str, receipt_date: str, receipt_time: str, items: List[Dict[str, Any]]):
         """
         Saves a list of finalized items to the database.
-        Expected item format: {'item': str, 'taxonomy_id': str, 'item_count': int, 'price': float, ...}
+        Expected item format: {'item': str, 'taxonomy_id': str, 'item_count': int, 'price': float, 'discount': float, 'item_type': str, ...}
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                for item in items:
-                    price = item.get("price", {}).get("amount", 0) if isinstance(item.get("price"), dict) else item.get("price", 0)
-                    qty = item.get("item_count", 1)
-                    
-                    conn.execute("""
+            # Generate embeddings for all items at once
+            item_texts = [item["item"] for item in items]
+            embeddings = embed_texts(item_texts)
+
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor() as cursor:
+                    for i, item in enumerate(items):
+                        # Handle potential dict or direct float for price/discount
+                        price = item.get("price", 0)
+                        if isinstance(price, dict):
+                            price = price.get("amount", 0)
+                        
+                        discount = item.get("discount", 0)
+                        if isinstance(discount, dict):
+                            discount = discount.get("amount", 0) # Fallback to 0 if not specified
+                        
+                        qty = item.get("item_count", 1)
+                        total = price - discount
+                        embedding = embeddings[i].tolist() if i < len(embeddings) else None
+
+                        cursor.execute("""
                         INSERT INTO processed_items (
-                            file_id, item_text, taxonomy_id, quantity, price, total, shop_name, receipt_date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            file_id, item_text, taxonomy_id, item_type, quantity, price, discount, total, shop_name, receipt_date, receipt_time, embedding
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         file_id,
                         item["item"],
                         item["taxonomy_id"],
+                        item.get("item_type"),
                         qty,
                         price,
-                        qty * price,
+                        discount,
+                        total,
                         shop_name,
-                        receipt_date
+                        receipt_date,
+                        receipt_time,
+                        embedding
                     ))
             logger.info(f"Saved {len(items)} items for file_id: {file_id}")
         except Exception as e:
             logger.error(f"Failed to save finalized items for {file_id}: {e}")
             raise CustomException(e, sys)
 
-    # ----------------------------------------------------------------------
-    # FAISS Operations (Historical Search)
-    # ----------------------------------------------------------------------
-
-    def load_index(self):
-        """Loads the historical items FAISS index and metadata."""
+    def get_items_by_file_id(self, file_id: str) -> List[Dict[str, Any]]:
+        """Retrieves all processed items for a specific file_id."""
         try:
-            if not Path(self.index_path).exists():
-                logger.warning("Historical FAISS index does not exist yet.")
-                return False
-
-            if not Path(self.meta_path).exists():
-                logger.warning("Historical FAISS metadata missing.")
-                return False
-
-            with open(self.meta_path, 'r') as f:
-                self.historical_ids = json.load(f)["mappings"]
-
-            self.faiss = FaissStore(self.index_path)
-            self.faiss.load()
-            logger.info("Historical FAISS index loaded.")
-            return True
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor(cursor_factory=DictCursor) as cur:
+                    cur.execute("SELECT * FROM processed_items WHERE file_id = %s", (file_id,))
+                    rows = cur.fetchall()
+                    return [dict(row) for row in rows]
         except Exception as e:
-            logger.error(f"Failed to load historical index: {e}")
-            return False
+            logger.error(f"Failed to get items for file_id {file_id}: {e}")
+            return []
+
+    # ----------------------------------------------------------------------
+    # Vector Search (Historical)
+    # ----------------------------------------------------------------------
 
     def search_history(self, query_vector, threshold=0.1) -> Optional[str]:
         """
-        Searches for a similar item in history.
+        Searches for a similar item in history using pgvector.
         Returns the taxonomy_id if a high-confidence match is found.
         """
         try:
-            if self.faiss is None:
-                if not self.load_index():
-                    return None
-
-            idxs, scores = self.faiss.search(query_vector, k=1)
+            # Ensure query_vector is compatible list
+            if hasattr(query_vector, "tolist"):
+                query_vector = query_vector.tolist()
             
-            if len(idxs) > 0 and idxs[0] != -1:
-                score = scores[0]
-                # Lower score means closer match in IndexFlatL2
+            if isinstance(query_vector, list) and len(query_vector) == 1 and isinstance(query_vector[0], list):
+                query_vector = query_vector[0]
+
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor(cursor_factory=DictCursor) as cur:
+                    # <=> is cosine distance. 
+                    # We want distance <= threshold.
+                    # Order by distance ASC to get best match.
+                    sql = """
+                        SELECT taxonomy_id, item_text, (embedding <=> %s::vector) as distance
+                        FROM processed_items
+                        WHERE embedding IS NOT NULL
+                        ORDER BY distance ASC
+                        LIMIT 1;
+                    """
+                    cur.execute(sql, (query_vector,))
+                    row = cur.fetchone()
+
+            if row:
+                score = float(row["distance"])
                 if score <= threshold:
-                    match_data = self.historical_ids[idxs[0]]
-                    logger.info(f"Historical hit: '{match_data['text']}' (Score: {score:.4f})")
-                    return match_data["taxonomy_id"]
+                    logger.info(f"Historical hit: '{row['item_text']}' (Score: {score:.4f})")
+                    return row["taxonomy_id"]
             
             return None
         except Exception as e:
             logger.error(f"Historical search failed: {e}")
             return None
 
-    def rebuild_index(self):
+    def backfill_embeddings(self):
         """
-        Rebuilds the historical index from all items in processed_items table.
-        This should be run periodically or after significant corrections.
+        Backfills missing embeddings in processed_items table.
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute("SELECT item_text, taxonomy_id FROM processed_items")
-                rows = cursor.fetchall()
+            with psycopg2.connect(self.conn_str) as conn:
+                # 1. Fetch items without embeddings
+                with conn.cursor(cursor_factory=DictCursor) as cur:
+                    cur.execute("SELECT id, item_text FROM processed_items WHERE embedding IS NULL")
+                    rows = cur.fetchall()
 
             if not rows:
-                logger.info("No items to index.")
+                logger.info("No items need embedding backfill.")
                 return
 
+            logger.info(f"Backfilling embeddings for {len(rows)} items...")
+            
             texts = [row["item_text"] for row in rows]
-            mappings = [{"text": row["item_text"], "taxonomy_id": row["taxonomy_id"]} for row in rows]
+            embeddings = embed_texts(texts)
             
-            logger.info(f"Rebuilding historical index with {len(texts)} entries.")
-            vectors = embed_texts(texts)
+            # 2. Update items
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor() as cur:
+                    for i, row in enumerate(rows):
+                        emb = embeddings[i].tolist()
+                        cur.execute(
+                            "UPDATE processed_items SET embedding = %s WHERE id = %s",
+                            (emb, row["id"])
+                        )
             
-            store = FaissStore(self.index_path)
-            store.build_new_index(vectors)
-            
-            with open(self.meta_path, 'w') as f:
-                json.dump({"mappings": mappings}, f)
-                
-            logger.info("Historical index rebuilt successfully.")
-            self.faiss = store
-            self.historical_ids = mappings
+            logger.info("Backfill completed.")
 
         except Exception as e:
-            logger.error(f"Failed to rebuild historical index: {e}")
+            logger.error(f"Failed to backfill embeddings: {e}")
             raise CustomException(e, sys)

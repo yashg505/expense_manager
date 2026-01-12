@@ -51,7 +51,6 @@ def upload_images():
             logger.info("Removed file_id %s from session", fid)
 
         for f in uploaded_files:
-            # SKIP if we already have this specific file_id processed
             if f.file_id in st.session_state['images']:
                 continue
 
@@ -61,6 +60,14 @@ def upload_images():
                 fingerprint = get_image_fingerprint(image)
 
                 # 2. Deduplication check
+                # get fingerpints
+                
+                status = ['uploaded']
+                images = ImageMetadataDB()
+                uploaded_images = images.get_images_by_status(status)
+                uploaded_fingerprints = {img['fingerprint'] for img in uploaded_images}
+                st.session_state['fingerprints'].update(uploaded_fingerprints)
+                
                 if fingerprint in st.session_state['fingerprints']:
                     st.warning(f"Duplicate content skipped: {f.name}")
                     continue
@@ -108,11 +115,8 @@ def upload_images():
         cols = st.columns(3)
         for idx, (fid, img_obj) in enumerate(st.session_state['images'].items()):
             with cols[idx % 3]:
-                # We load the image from path ONLY when displaying
+
                 st.image(img_obj.image_path, caption=img_obj.file_name, width="stretch")
-        
-        # A trigger for the next stage
-        # if st.button("🚀 Process All Receipts", type="primary"):
-        #     st.session_state['trigger_ocr'] = True
+
 
     return st.session_state['images']
