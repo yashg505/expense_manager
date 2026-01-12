@@ -1,9 +1,17 @@
+
+import os
 import streamlit as st
 import dotenv
 from expense_manager.components.navbar import render_navbar
 from expense_manager.components.image_uploader import upload_images
 
 dotenv.load_dotenv()
+
+required = ["OPENAI_API_KEY", "NEON_CONN_STR"]
+missing = [k for k in required if k not in os.environ]
+if missing:
+    raise RuntimeError(f"Missing env vars: {missing}")
+
 
 # Set page config once at the entry point
 st.set_page_config(page_title="Expense Manager - Upload", layout="wide")

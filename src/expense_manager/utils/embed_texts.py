@@ -16,7 +16,7 @@ def _get_model():
     if _EMBEDDING_MODEL is None:
         try:
             # You can make the model name configurable if desired
-            model_name = "all-MiniLM-L6-v2"
+            model_name = load_config_file().get("llm", {}).get("embedding_model", "all-MiniLM-L6-v2")
             logger.info(f"Loading local embedding model: {model_name}")
             _EMBEDDING_MODEL = SentenceTransformer(model_name)
         except Exception as e:
@@ -51,7 +51,7 @@ def embed_texts(texts: list[str]) -> np.ndarray:
         # Generate embeddings
         embeddings = model.encode(texts, show_progress_bar=False)
         
-        # Convert to numpy array with float32 type for FAISS compatibility
+        # Convert to numpy array with float32 type for pgvector compatibility
         vector_array = np.array(embeddings).astype('float32')
         
         logger.info(f"Successfully generated embeddings. Shape: {vector_array.shape}")

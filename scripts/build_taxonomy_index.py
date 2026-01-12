@@ -1,31 +1,35 @@
-from expense_manager.dbs.taxonomy_db import TaxonomyDB
+from expense_manager.sync.taxonomy_sync import TaxonomySync
 from expense_manager.logger import get_logger
 import sys
 from dotenv import load_dotenv
 
-# Load env vars (API key)
+# Load env vars (API key, DB conn)
 load_dotenv()
 
 # Configure logging
 logger = get_logger(__name__)
 
-def build_index():
+def run_sync():
     try:
-        logger.info("Starting Taxonomy FAISS Index Rebuild...")
+        logger.info("Starting Manual Taxonomy Sync (Sheet -> Postgres + Vector)...")
         
-        # Initialize DB Layer
-        db = TaxonomyDB()
+        # Initialize Sync Agent
+        syncer = TaxonomySync()
         
-        # Trigger Index Build
-        count = db.build_vector_index()
+        # Trigger Sync
+        success = syncer.sync()
         
-        logger.info(f"Successfully built FAISS index with {count} items.")
-        print(f"SUCCESS: Built index for {count} taxonomy items.")
+        if success:
+            logger.info("Successfully synced taxonomy.")
+            print("SUCCESS: Taxonomy synced to Postgres and Vector DB.")
+        else:
+            logger.error("Taxonomy sync returned False.")
+            sys.exit(1)
         
     except Exception as e:
-        logger.error(f"Failed to build index: {e}")
+        logger.error(f"Failed to sync taxonomy: {e}")
         print(f"ERROR: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    build_index()
+    run_sync()
