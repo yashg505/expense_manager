@@ -14,7 +14,6 @@ from typing import Optional, Dict, Any
 
 from expense_manager.logger import get_logger
 from expense_manager.exception import CustomException
-from expense_manager.utils.load_config import load_config_file
 
 logger = get_logger(__name__)
 
