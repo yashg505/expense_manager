@@ -59,17 +59,27 @@ class ClassifierAgent:
                 return self._uncategorized_result()
 
             # STEP 1: Corrections DB (Exact Shop + Item Match)
-            correction_id = self.corrections_db.get_correction(shop_name, item_name)
-            if correction_id:
-                logger.info(f"Step 1 Hit (Correction): [{shop_name}] '{item_name}' -> {correction_id}")
+            correction_tuple = self.corrections_db.get_correction(shop_name, item_name)
+            if correction_tuple:
+                correction_id, corrected_type = correction_tuple
+                logger.info(f"Step 1 Hit (Correction): [{shop_name}] '{item_name}' -> {correction_id} (Type: {corrected_type})")
+                
+                # If there's a type correction, we might want to propagate it, 
+                # but ClassificationResult doesn't carry item_type. 
+                # For now, we trust the taxonomy ID is the primary correction.
                 return self._build_result(correction_id, 1.0)
 
             logger.info(f"Step 1 Fail: No correction found for [{shop_name}] '{item_name}'")
             # STEP 2: Historical Items (Exact Shop + Item Match)
             history_id = self.main_db.get_historical_exact_match(shop_name, item_name)
             if history_id:
-                logger.info(f"Step 2 Hit (History Exact): [{shop_name}] '{item_name}' -> {history_id}")
+                logger.info(f"Step 2.1 Hit (History Exact): [{shop_name}] '{item_name}' -> {history_id}")
                 return self._build_result(history_id, 1.0)
+            else:
+                history_id = self.main_db.get_historical_exact_match(shop_name, item_type)
+                if history_id:
+                    logger.info(f"Step 2.2 Hit (History Type Exact): [{shop_name}] '{item_type}' -> {history_id}")
+                    return self._build_result(history_id, 1.0)
 
             logger.info(f"Step 2 Fail: No historical match found for [{shop_name}] '{item_name}'")
             # --- Vector Search Candidates ---

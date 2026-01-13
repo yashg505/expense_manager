@@ -4,6 +4,7 @@ from PIL import Image
 
 from expense_manager.models.receipt import ReceiptImage
 from expense_manager.utils.image_fingerprint import get_image_fingerprint
+from expense_manager.utils.artifacts_gcs import upload_artifact, ensure_local_artifact
 from expense_manager.dbs.image_metadata import ImageMetadataDB
 from expense_manager.logger import get_logger
 
@@ -48,6 +49,9 @@ def upload_images():
         for fid in removed_ids:
             old_obj = st.session_state['images'].pop(fid)
             st.session_state['fingerprints'].discard(old_obj.fingerprint)
+            local_path = getattr(old_obj, 'local_path', None)
+            if local_path and os.path.exists(local_path):
+                os.remove(local_path)
             logger.info("Removed file_id %s from session", fid)
 
         for f in uploaded_files:
@@ -78,14 +82,22 @@ def upload_images():
                     file_ext = ".png"
                 
                 temp_path = os.path.join(TEMP_DIR, f"{f.file_id}{file_ext}")
+                file_bytes = bytes(f.getbuffer())
                 with open(temp_path, "wb") as buf:
-                    buf.write(f.getbuffer())
+                    buf.write(file_bytes)
+
+                gcs_path = upload_artifact(
+                    file_bytes,
+                    f"{f.file_id}{file_ext}",
+                    content_type=f.type
+                )
 
                 # 4. Create Pydantic Model
                 img_obj = ReceiptImage(
                     file_id=f.file_id,
                     file_name=f.name,
-                    image_path=temp_path, # Path instead of Object
+                    image_path=gcs_path,
+                    local_path=temp_path,
                     fingerprint=fingerprint,
                     metadata={"size": f.size, "type": f.type}
                 )
@@ -116,7 +128,15 @@ def upload_images():
         for idx, (fid, img_obj) in enumerate(st.session_state['images'].items()):
             with cols[idx % 3]:
 
-                st.image(img_obj.image_path, caption=img_obj.file_name, width="stretch")
+                try:
+                    local_path = ensure_local_artifact(
+                        img_obj.image_path, existing_local=getattr(img_obj, 'local_path', None)
+                    )
+                    setattr(img_obj, 'local_path', local_path)
+                    st.session_state['images'][fid] = img_obj
+                    st.image(local_path, caption=img_obj.file_name, width="stretch")
+                except FileNotFoundError:
+                    st.error(f"Preview unavailable for {img_obj.file_name}")
 
 
     return st.session_state['images']

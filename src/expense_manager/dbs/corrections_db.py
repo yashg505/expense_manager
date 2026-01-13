@@ -42,6 +42,7 @@ class CorrectionsDB:
                             corrected_taxonomy_id TEXT NOT NULL,
                             user_id TEXT DEFAULT 'system',
                             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            new_item_type TEXT,
                             PRIMARY KEY (shop_name, item_text)
                         )
                     ''')
@@ -63,7 +64,7 @@ class CorrectionsDB:
         text = re.sub(r'\s+', ' ', text)
         return text
 
-    def add_correction(self, shop_name: str, item_text: str, taxonomy_id: str, user_id: str = 'system'):
+    def add_correction(self, shop_name: str, item_text: str, taxonomy_id: str, new_item_type: Optional[str] = None, user_id: str = 'system'):
         """
         Adds or updates a correction for a specific shop + item combo.
         Uses ON CONFLICT for Postgres upsert.
@@ -78,23 +79,25 @@ class CorrectionsDB:
             with psycopg2.connect(self.conn_str) as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        INSERT INTO corrections (shop_name, item_text, corrected_taxonomy_id, user_id, updated_at)
-                        VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                        INSERT INTO corrections (shop_name, item_text, corrected_taxonomy_id, user_id, new_item_type, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (shop_name, item_text) 
                         DO UPDATE SET
                             corrected_taxonomy_id = EXCLUDED.corrected_taxonomy_id,
                             user_id = EXCLUDED.user_id,
+                            new_item_type = EXCLUDED.new_item_type,
                             updated_at = CURRENT_TIMESTAMP;
-                    """, (norm_shop, norm_item, taxonomy_id, user_id))
+                    """, (norm_shop, norm_item, taxonomy_id, user_id, new_item_type))
             
-            logger.info(f"Correction saved: [{norm_shop}] '{norm_item}' -> '{taxonomy_id}'")
+            logger.info(f"Correction saved: [{norm_shop}] '{norm_item}' -> '{taxonomy_id}' (Type: {new_item_type})")
         except Exception as e:
             logger.error(f"Failed to save correction for {shop_name}/{item_text}: {e}")
             raise CustomException(e, sys)
 
-    def get_correction(self, shop_name: str, item_text: str) -> Optional[str]:
+    def get_correction(self, shop_name: str, item_text: str) -> Optional[tuple[str, Optional[str]]]:
         """
-        Retrieves the taxonomy ID for a given shop + item if it exists.
+        Retrieves the taxonomy ID and new item type for a given shop + item if it exists.
+        Returns: (taxonomy_id, new_item_type) or None
         """
         try:
             norm_shop = self._normalize(shop_name)
@@ -106,15 +109,15 @@ class CorrectionsDB:
             with psycopg2.connect(self.conn_str) as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT corrected_taxonomy_id 
+                        SELECT corrected_taxonomy_id, new_item_type
                         FROM corrections
                         WHERE shop_name = %s AND item_text = %s
                     """, (norm_shop, norm_item))
                     row = cur.fetchone()
                 
             if row:
-                logger.debug(f"Correction hit: [{norm_shop}] '{norm_item}' -> '{row[0]}'")
-                return row[0]
+                logger.debug(f"Correction hit: [{norm_shop}] '{norm_item}' -> '{row[0]}' (Type: {row[1]})")
+                return (row[0], row[1])
             
             return None
         except Exception as e:

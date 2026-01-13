@@ -66,7 +66,7 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
 
 ### Running the Streamlit UI (Primary Interface)
 ```bash
-uv run streamlit run pages/page1_upload.py
+uv run streamlit run main.py
 ```
 This will launch the application in your browser, where you can:
 1. **Upload**: Drop receipt images (detects duplicates automatically).
