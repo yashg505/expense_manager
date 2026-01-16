@@ -13,7 +13,6 @@ import re
 
 from expense_manager.logger import get_logger
 from expense_manager.exception import CustomException
-from expense_manager.utils.load_config import load_config_file
 
 logger = get_logger(__name__)
 
@@ -25,7 +24,7 @@ class CorrectionsDB:
                 raise CustomException("Database connection string (NEON_CONN_STR) not found.")
 
             self._init_db()
-            logger.info(f"Initialized CorrectionsDB (Postgres).")
+            logger.info("Initialized CorrectionsDB (Postgres).")
         except Exception as e:
             raise CustomException(e, sys)
 
@@ -42,7 +41,7 @@ class CorrectionsDB:
                             corrected_taxonomy_id TEXT NOT NULL,
                             user_id TEXT DEFAULT 'system',
                             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            new_item_type TEXT,
+                            corrected_item_type TEXT,
                             PRIMARY KEY (shop_name, item_text)
                         )
                     ''')
@@ -64,7 +63,7 @@ class CorrectionsDB:
         text = re.sub(r'\s+', ' ', text)
         return text
 
-    def add_correction(self, shop_name: str, item_text: str, taxonomy_id: str, new_item_type: Optional[str] = None, user_id: str = 'system'):
+    def add_correction(self, shop_name: str, item_text: str, taxonomy_id: str, corrected_item_type: Optional[str] = None, user_id: str = 'system'):
         """
         Adds or updates a correction for a specific shop + item combo.
         Uses ON CONFLICT for Postgres upsert.
@@ -79,25 +78,25 @@ class CorrectionsDB:
             with psycopg2.connect(self.conn_str) as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        INSERT INTO corrections (shop_name, item_text, corrected_taxonomy_id, user_id, new_item_type, updated_at)
+                        INSERT INTO corrections (shop_name, item_text, corrected_taxonomy_id, user_id, corrected_item_type, updated_at)
                         VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (shop_name, item_text) 
                         DO UPDATE SET
                             corrected_taxonomy_id = EXCLUDED.corrected_taxonomy_id,
                             user_id = EXCLUDED.user_id,
-                            new_item_type = EXCLUDED.new_item_type,
+                            corrected_item_type = EXCLUDED.corrected_item_type,
                             updated_at = CURRENT_TIMESTAMP;
-                    """, (norm_shop, norm_item, taxonomy_id, user_id, new_item_type))
+                    """, (norm_shop, norm_item, taxonomy_id, user_id, corrected_item_type))
             
-            logger.info(f"Correction saved: [{norm_shop}] '{norm_item}' -> '{taxonomy_id}' (Type: {new_item_type})")
+            logger.info(f"Correction saved: [{norm_shop}] '{norm_item}' -> '{taxonomy_id}' (Type: {corrected_item_type})")
         except Exception as e:
             logger.error(f"Failed to save correction for {shop_name}/{item_text}: {e}")
             raise CustomException(e, sys)
 
     def get_correction(self, shop_name: str, item_text: str) -> Optional[tuple[str, Optional[str]]]:
         """
-        Retrieves the taxonomy ID and new item type for a given shop + item if it exists.
-        Returns: (taxonomy_id, new_item_type) or None
+        Retrieves the taxonomy ID and corrected item type for a given shop + item if it exists.
+        Returns: (taxonomy_id, corrected_item_type) or None
         """
         try:
             norm_shop = self._normalize(shop_name)
@@ -109,7 +108,7 @@ class CorrectionsDB:
             with psycopg2.connect(self.conn_str) as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT corrected_taxonomy_id, new_item_type
+                        SELECT corrected_taxonomy_id, corrected_item_type
                         FROM corrections
                         WHERE shop_name = %s AND item_text = %s
                     """, (norm_shop, norm_item))

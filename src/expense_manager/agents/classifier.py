@@ -76,7 +76,7 @@ class ClassifierAgent:
                 logger.info(f"Step 2.1 Hit (History Exact): [{shop_name}] '{item_name}' -> {history_id}")
                 return self._build_result(history_id, 1.0)
             else:
-                history_id = self.main_db.get_historical_exact_match(shop_name, item_type)
+                history_id = self.main_db.get_historical_exact_match_type(shop_name, item_type)
                 if history_id:
                     logger.info(f"Step 2.2 Hit (History Type Exact): [{shop_name}] '{item_type}' -> {history_id}")
                     return self._build_result(history_id, 1.0)
@@ -91,6 +91,7 @@ class ClassifierAgent:
             candidates.extend(item_candidates)
 
             logger.info(f"Step 3: Found {len(item_candidates)} candidates from item name vector search.")
+            logger.debug(f"Item Name Vector Candidates: {[c['row_id'] for c in item_candidates]}")
             
             # STEP 4: Taxonomy Match (Item Type Vector)
             if item_type and item_type.lower() != "unknown":
@@ -99,6 +100,7 @@ class ClassifierAgent:
                 candidates.extend(type_candidates)
 
                 logger.info(f"Step 4: Found {len(type_candidates)} candidates from item type vector search.")
+                logger.debug(f"Item Type Vector Candidates: {[c['row_id'] for c in type_candidates]}")
             # Deduplicate candidates by row_id
             seen_ids = set()
             unique_candidates = []
@@ -115,6 +117,7 @@ class ClassifierAgent:
                         logger.info(f"Step 5 Hit (LLM Choice): '{item_name}' -> {chosen_id}")
                         return self._build_result(chosen_id, 0.9)
                 else:
+                    logger.warning("Step 5 Fallback (No LLM), going for top Vector Match")
                     # No LLM? Just take the top vector match if score is good
                     top_match = unique_candidates[0]
                     if top_match["score"] < 1.0: 

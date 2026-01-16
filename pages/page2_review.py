@@ -136,7 +136,7 @@ def save_receipt_edits(file_id, edited_data, header_info):
                 shop_name=header_info['shop'],
                 item_text=row['Item Name'],
                 taxonomy_id=new_tax_id,
-                new_item_type=row['item_type']
+                corrected_item_type=row['item_type']
             )
             st.toast(f"Saved correction for {row['Item Name']}")
 
