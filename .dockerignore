@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.pytest_cache/
+notebooks/
+tests/
+*.db
+*.log
+.DS_Store
+.env
+.python-version
+uv.lock
