@@ -12,6 +12,10 @@ sheets:
 paths:
   image_store: "data/images"
 
+storage:
+  bucket_name: "expense-manager-ai"
+  artifacts_prefix: "artifacts/images"
+
 llm:
   embedding_model: "all-MiniLM-L6-v2"
   classification_model: "gpt-4.1"

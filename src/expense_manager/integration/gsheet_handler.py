@@ -4,7 +4,7 @@ import gspread
 from typing import cast
 from google.auth.credentials import Credentials
 from gspread_dataframe import set_with_dataframe
-from datetime import datetime
+from datetime import datetime, timezone
 
 from expense_manager.logger import get_logger
 from expense_manager.exception import CustomException
@@ -81,7 +81,7 @@ class GSheetHandler:
                 raise CustomException("Google Sheet is not initialized")
 
             worksheet = self.sheet.worksheet(self.worksheet_name)
-            records = worksheet.get_all_records()
+            records:list = worksheet.get_all_records()
             self.df = pd.DataFrame(records)
             logger.info(
                 f"Loaded worksheet '{self.worksheet_name}' ({len(self.df)} rows)"
@@ -142,7 +142,7 @@ class GSheetHandler:
             raise CustomException("Taxonomy sheet is empty")
 
         rows = df.to_dict(orient="records")
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(timezone.utc)
 
         logger.info(f"Fetched {len(rows)} taxonomy rows")
         return rows, timestamp

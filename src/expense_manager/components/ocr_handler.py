@@ -8,6 +8,7 @@ import pytesseract
 from expense_manager.logger import get_logger
 from expense_manager.exception import CustomException
 from expense_manager.models import OCRResult
+from expense_manager.utils.artifacts_gcs import ensure_local_artifact
 
 logger = get_logger(__name__)
 
@@ -88,10 +89,12 @@ class OCRHandler:
         Safe execution boundary: catches all errors and returns an OCRResult.
         """
         try:
-            if not image_path or not os.path.exists(image_path):
-                raise FileNotFoundError(f"Image not found at: {image_path}")
+            if not image_path:
+                raise FileNotFoundError("Image path is empty")
 
-            raw_output = self.ocr_fn(image_path)
+            local_path = ensure_local_artifact(image_path)
+
+            raw_output = self.ocr_fn(local_path)
 
             if raw_output is None:
                 raise ValueError("OCR engine returned None")

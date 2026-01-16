@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any
 
 from expense_manager.logger import get_logger
 from expense_manager.exception import CustomException
-from expense_manager.utils.load_config import load_config_file
+from expense_manager.utils.artifacts_gcs import delete_artifact
 
 logger = get_logger(__name__)
 
@@ -171,11 +171,13 @@ class ImageMetadataDB:
             image_path = row.get("image_path")
             if file_id:
                 file_ids.append(file_id)
-            if image_path and os.path.exists(image_path):
+            if image_path:
                 try:
-                    os.remove(image_path)
-                    deleted_files += 1
-                except OSError as exc:
+                    if delete_artifact(image_path):
+                        deleted_files += 1
+                    else:
+                        missing_files += 1
+                except CustomException as exc:
                     logger.error(f"Failed to delete image {image_path}: {exc}")
             else:
                 missing_files += 1

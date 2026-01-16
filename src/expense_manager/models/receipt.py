@@ -8,6 +8,7 @@ class ReceiptImage(BaseModel):
     file_id: str
     file_name: str
     image_path: str
+    local_path: Optional[str] = None
     fingerprint: str
 
     ocr_text: Optional[str] = None

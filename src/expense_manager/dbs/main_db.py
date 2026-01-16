@@ -82,7 +82,7 @@ class MainDB:
             
             if not norm_item:
                 return None
-
+            logger.debug(f"Searching historical exact match for shop: '{norm_shop}', item: '{norm_item}'")
             with psycopg2.connect(self.conn_str) as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("""
@@ -101,6 +101,39 @@ class MainDB:
             return None
         except Exception as e:
             logger.error(f"Failed to fetch historical exact match for {shop_name}/{item_text}: {e}")
+            return None
+    
+    def get_historical_exact_match_type(self, shop_name: str, item_type: str) -> Optional[str]:
+        """
+        Searches for an exact match in historical data (Step 2).
+        """
+        try:
+            norm_shop = self._normalize(shop_name)
+            norm_item = self._normalize(item_type)
+            
+            logger.debug(f"Searching historical exact match for shop: '{norm_shop}', item: '{norm_item}'")
+            
+            if not norm_item:
+                return None
+
+            with psycopg2.connect(self.conn_str) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT taxonomy_id 
+                        FROM processed_items
+                        WHERE LOWER(shop_name) = %s AND LOWER(item_text) = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (norm_shop, norm_item))
+                row = cursor.fetchone()
+            
+            if row:
+                logger.debug(f"Historical exact match hit: [{norm_shop}] '{norm_item}' -> '{row[0]}'")
+                return row[0]
+            
+            return None
+        except Exception as e:
+            logger.error(f"Failed to fetch historical exact match for {shop_name}/{item_type}: {e}")
             return None
 
     def insert_finalized_items(self, file_id: str, shop_name: str, receipt_date: str, receipt_time: str, items: List[Dict[str, Any]]):

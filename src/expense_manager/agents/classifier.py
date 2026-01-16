@@ -59,17 +59,27 @@ class ClassifierAgent:
                 return self._uncategorized_result()
 
             # STEP 1: Corrections DB (Exact Shop + Item Match)
-            correction_id = self.corrections_db.get_correction(shop_name, item_name)
-            if correction_id:
-                logger.info(f"Step 1 Hit (Correction): [{shop_name}] '{item_name}' -> {correction_id}")
+            correction_tuple = self.corrections_db.get_correction(shop_name, item_name)
+            if correction_tuple:
+                correction_id, corrected_type = correction_tuple
+                logger.info(f"Step 1 Hit (Correction): [{shop_name}] '{item_name}' -> {correction_id} (Type: {corrected_type})")
+                
+                # If there's a type correction, we might want to propagate it, 
+                # but ClassificationResult doesn't carry item_type. 
+                # For now, we trust the taxonomy ID is the primary correction.
                 return self._build_result(correction_id, 1.0)
 
             logger.info(f"Step 1 Fail: No correction found for [{shop_name}] '{item_name}'")
             # STEP 2: Historical Items (Exact Shop + Item Match)
             history_id = self.main_db.get_historical_exact_match(shop_name, item_name)
             if history_id:
-                logger.info(f"Step 2 Hit (History Exact): [{shop_name}] '{item_name}' -> {history_id}")
+                logger.info(f"Step 2.1 Hit (History Exact): [{shop_name}] '{item_name}' -> {history_id}")
                 return self._build_result(history_id, 1.0)
+            else:
+                history_id = self.main_db.get_historical_exact_match_type(shop_name, item_type)
+                if history_id:
+                    logger.info(f"Step 2.2 Hit (History Type Exact): [{shop_name}] '{item_type}' -> {history_id}")
+                    return self._build_result(history_id, 1.0)
 
             logger.info(f"Step 2 Fail: No historical match found for [{shop_name}] '{item_name}'")
             # --- Vector Search Candidates ---
@@ -81,6 +91,7 @@ class ClassifierAgent:
             candidates.extend(item_candidates)
 
             logger.info(f"Step 3: Found {len(item_candidates)} candidates from item name vector search.")
+            logger.debug(f"Item Name Vector Candidates: {[c['row_id'] for c in item_candidates]}")
             
             # STEP 4: Taxonomy Match (Item Type Vector)
             if item_type and item_type.lower() != "unknown":
@@ -89,6 +100,7 @@ class ClassifierAgent:
                 candidates.extend(type_candidates)
 
                 logger.info(f"Step 4: Found {len(type_candidates)} candidates from item type vector search.")
+                logger.debug(f"Item Type Vector Candidates: {[c['row_id'] for c in type_candidates]}")
             # Deduplicate candidates by row_id
             seen_ids = set()
             unique_candidates = []
@@ -105,6 +117,7 @@ class ClassifierAgent:
                         logger.info(f"Step 5 Hit (LLM Choice): '{item_name}' -> {chosen_id}")
                         return self._build_result(chosen_id, 0.9)
                 else:
+                    logger.warning("Step 5 Fallback (No LLM), going for top Vector Match")
                     # No LLM? Just take the top vector match if score is good
                     top_match = unique_candidates[0]
                     if top_match["score"] < 1.0: 

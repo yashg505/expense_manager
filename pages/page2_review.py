@@ -14,6 +14,7 @@ from expense_manager.models.parsers import ItemClassification
 from expense_manager.integration.gsheet_handler import GSheetHandler
 from expense_manager.logger import get_logger
 from expense_manager.dbs.image_metadata import ImageMetadataDB
+from expense_manager.utils.artifacts_gcs import ensure_local_artifact
 
 logger = get_logger(__name__)
 
@@ -134,7 +135,8 @@ def save_receipt_edits(file_id, edited_data, header_info):
             st.session_state['corrections_db'].add_correction(
                 shop_name=header_info['shop'],
                 item_text=row['Item Name'],
-                taxonomy_id=new_tax_id
+                taxonomy_id=new_tax_id,
+                corrected_item_type=row['item_type']
             )
             st.toast(f"Saved correction for {row['Item Name']}")
 
@@ -244,7 +246,15 @@ for fid, img_obj in st.session_state['images'].items():
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            st.image(img_obj.image_path, width="stretch")
+            try:
+                local_path = ensure_local_artifact(
+                    img_obj.image_path, existing_local=getattr(img_obj, 'local_path', None)
+                )
+                setattr(img_obj, 'local_path', local_path)
+                st.session_state['images'][fid] = img_obj
+                st.image(local_path, width="stretch")
+            except FileNotFoundError:
+                st.warning(f"Preview unavailable for {img_obj.file_name}")
             
         with col2:
             # Header Edits
@@ -291,7 +301,7 @@ for fid, img_obj in st.session_state['images'].items():
                     "predicted_id": None, # Hide tracking column
                     "item_type": None
                 },
-                disabled=["predicted_id", "item_type"],
+                disabled=["predicted_id"],
                 key=f"editor_{fid}",
                 hide_index=True,
                 width="stretch"
