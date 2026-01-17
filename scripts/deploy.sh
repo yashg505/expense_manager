@@ -3,7 +3,7 @@ set -e
 
 # Configuration (Populated by the pipeline or defaults)
 TAG=${1:-latest}
-REGION=${2:-us-central1}
+REGION=${2:-europe-west1}
 PROJECT_ID=${3}
 REPO_NAME=${4}
 IMAGE_NAME=${5:-expense-manager}
@@ -20,6 +20,10 @@ gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 echo "🔐 Fetching secrets..."
 OPENAI_API_KEY=$(gcloud secrets versions access latest --secret="OPENAI_API_KEY" --quiet)
 NEON_CONN_STR=$(gcloud secrets versions access latest --secret="NEON_CONN_STR" --quiet)
+
+# Prune docker system to free up space before pulling
+echo "🧹 Cleaning up unused Docker resources..."
+docker system prune -af
 
 # Pull the new image
 docker pull "${FULL_IMAGE}"

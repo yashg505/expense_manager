@@ -25,14 +25,13 @@ WORKDIR /app
 # Copy dependency files
 COPY pyproject.toml uv.lock ./
 
-# Install dependencies (without installing the project itself yet)
-RUN uv sync --frozen --no-dev --no-install-project
+# Install dependencies and the project in a single layer to save space
+# Using --no-cache and cleaning up after installation
+RUN uv sync --frozen --no-dev && \
+    uv cache clean
 
 # Copy the rest of the application
 COPY . .
-
-# Final sync to ensure everything is set up
-RUN uv sync --frozen --no-dev
 
 EXPOSE 8501
 
