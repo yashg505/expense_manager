@@ -41,3 +41,6 @@ dependencies = [
 dev = [
     "pytest>=9.0.2",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/expense_manager"]
