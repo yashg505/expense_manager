@@ -12,6 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app/src
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
     tesseract-ocr \
     libglib2.0-0 \
     libsm6 \
@@ -23,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 
 # Install dependencies and the project in a single layer to save space
 # Using --no-cache and cleaning up after installation
