@@ -25,8 +25,10 @@ NEON_CONN_STR=$(gcloud secrets versions access latest --secret="NEON_CONN_STR" -
 docker pull "${FULL_IMAGE}"
 
 # Stop and remove the old container if it exists
+OLD_IMAGE_ID=""
 if [ "$(docker ps -aq -f name=${IMAGE_NAME})" ]; then
     echo "🛑 Stopping existing container..."
+    OLD_IMAGE_ID=$(docker inspect --format='{{.Image}}' ${IMAGE_NAME} 2>/dev/null)
     docker stop ${IMAGE_NAME} || true
     docker rm ${IMAGE_NAME} || true
 fi
@@ -40,5 +42,11 @@ docker run -d \
   -e OPENAI_API_KEY=${OPENAI_API_KEY} \
   -e NEON_CONN_STR=${NEON_CONN_STR} \
   "${FULL_IMAGE}"
+
+# Cleanup old image
+if [ -n "$OLD_IMAGE_ID" ]; then
+    echo "🧹 Removing old image: $OLD_IMAGE_ID"
+    docker rmi "$OLD_IMAGE_ID" || true
+fi
 
 echo "✅ Deployment Complete!"

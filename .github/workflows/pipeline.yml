@@ -65,14 +65,37 @@ jobs:
           docker push "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
           docker push "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
 
+      - name: Resolve GCE zone
+        id: resolve_zone
+        run: |-
+          if [ -n "${{ env.GCE_INSTANCE_ZONE }}" ] && [ "${{ env.GCE_INSTANCE_ZONE }}" != "***" ]; then
+            echo "zone=${{ env.GCE_INSTANCE_ZONE }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          zone="$(gcloud compute instances list \
+            --project "${{ env.PROJECT_ID }}" \
+            --filter="name=(${GCE_INSTANCE})" \
+            --format="value(zone)" \
+            --limit=1)"
+
+          if [ -z "$zone" ]; then
+            echo "Could not resolve zone for instance '${GCE_INSTANCE}'. Set GCE_INSTANCE_ZONE secret."
+            exit 1
+          fi
+
+          echo "zone=$zone" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to VM
         run: |-
           # 1. Copy the deploy script to the VM
           gcloud compute scp scripts/deploy.sh ${{ env.GCE_INSTANCE }}:~ \
-            --zone ${{ env.GCE_INSTANCE_ZONE }}
+            --project ${{ env.PROJECT_ID }} \
+            --zone ${{ steps.resolve_zone.outputs.zone }}
             
           # 2. Execute the script on the VM
           gcloud compute ssh ${{ env.GCE_INSTANCE }} \
-            --zone ${{ env.GCE_INSTANCE_ZONE }} \
+            --project ${{ env.PROJECT_ID }} \
+            --zone ${{ steps.resolve_zone.outputs.zone }} \
             --command "chmod +x deploy.sh; \
                        ./deploy.sh ${{ github.sha }} ${{ env.GAR_LOCATION }} ${{ env.PROJECT_ID }} ${{ env.GAR_REPOSITORY }} ${{ env.IMAGE_NAME }}"
