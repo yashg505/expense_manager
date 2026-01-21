@@ -8,35 +8,41 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
 
 ### Key Features
 - **Intelligent OCR**: Uses RapidOCR and PaddleOCR for high-accuracy text extraction from images.
-- **LLM-Powered Parsing**: Extracts structured receipt data (vendor, date, total, line items) using GPT-4 or Gemini.
-- **Smart Classification**: Automatically assigns categories to items based on a taxonomy stored in PostgreSQL (using pgvector for semantic search) and SQLite.
+- **LLM-Powered Parsing**: Extracts structured receipt data (vendor, date, total, line items) using GPT-4 or Gemini 1.5 Pro/Flash.
+- **Smart Classification**: Automatically assigns categories to items based on a taxonomy stored in PostgreSQL (using `pgvector` for native semantic search).
 - **Deduplication**: Uses image fingerprinting (ImageHash) to prevent duplicate receipt uploads.
 - **Streamlit UI**: A user-friendly, multi-page web interface for uploading, reviewing, and confirming expenses.
 - **Google Sheets Integration**: Seamlessly syncs confirmed expenses to a centralized spreadsheet.
+- **CI/CD Pipeline**: Automated testing and deployment to Google Cloud (GCE) using GitHub Actions and Docker.
 
 ## 🛠 Technology Stack
 - **Frontend**: [Streamlit](https://streamlit.io/)
 - **OCR**: [RapidOCR](https://github.com/RapidAI/RapidOCR), [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)
-- **LLM**: OpenAI (GPT-4), Google Gemini
+- **LLM**: OpenAI (GPT-4), Google Gemini (1.5 Pro/Flash)
 - **Data Validation**: [Pydantic](https://docs.pydantic.dev/)
-- **Database**: PostgreSQL (Metadata, Taxonomy, Vector Search via pgvector)
-- **Image Processing**: OpenCV, Pillow, ImageHash
+- **Database**: PostgreSQL with `pgvector` (Vector Search), SQLite (Metadata)
+- **Embeddings**: Sentence-Transformers (`all-MiniLM-L6-v2`)
 - **Dependency Management**: [uv](https://github.com/astral-sh/uv)
+- **Cloud**: Google Cloud Platform (GCS, Secret Manager, Artifact Registry, GCE)
 
 ## 📁 Project Structure
 ```text
-├── src/
-│   ├── agents/          # Parsing (LLM) and Classification logic
+├── src/expense_manager/ # Core logic
+│   ├── agents/          # LLM Parsing and Classification logic
 │   ├── components/      # UI components (uploader, navbar, etc.)
-│   ├── dbs/             # Database handlers (Postgres)
+│   ├── dbs/             # Database handlers (PostgreSQL, SQLite)
 │   ├── integration/     # Google Sheets handler
 │   ├── llm/             # OpenAI and Gemini client wrappers
 │   ├── models/          # Pydantic data models
-│   └── utils/           # Logging, image fingerprinting, prompt builders
+│   ├── sync/            # Taxonomy synchronization logic
+│   └── utils/           # Logging, image fingerprinting, embeddings, etc.
 ├── pages/               # Streamlit multi-page application logic
-├── data/                # SQLite databases (Legacy/Migrating)
-├── artifacts/           # Uploaded images and temporary assets
-└── tests/               # Pytest suite
+├── scripts/             # Utility scripts (sync, setup, deployment)
+├── data/                # SQLite databases and taxonomy files
+├── artifacts/           # Uploaded images and metadata
+├── tests/               # Pytest suite
+├── .github/workflows/   # CI/CD Pipeline
+└── Dockerfile           # Containerization setup
 ```
 
 ## ⚙️ Setup & Installation
@@ -44,7 +50,7 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
 ### Prerequisites
 - Python 3.10+
 - [uv](https://github.com/astral-sh/uv) package manager
-- PostgreSQL database with `pgvector` extension enabled (e.g., Neon).
+- PostgreSQL database with `pgvector` extension enabled.
 
 ### Installation
 1. Clone the repository.
@@ -60,26 +66,21 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
    GEMINI_API_KEY=your_gemini_key
    NEON_CONN_STR=postgresql://user:password@host/dbname
    ```
-2. Update `config.yaml` with your specific `sheet_id` and other preferences if necessary.
+2. Update `config.yaml` with your specific `sheet_id` and other preferences.
 
 ## 💻 Usage
 
-### Running the Streamlit UI (Primary Interface)
+### Running the Streamlit UI
 ```bash
 uv run streamlit run main.py
 ```
-This will launch the application in your browser, where you can:
+This will launch the application in your browser:
 1. **Upload**: Drop receipt images (detects duplicates automatically).
-2. **Review**: Check LLM-extracted data and adjust classifications.
+2. **Review**: Check extracted data and adjust classifications.
 3. **Confirm**: Finalize and sync data to Google Sheets.
 
-### CLI Pipeline (Debug/Test)
-```bash
-uv run python main.py
-```
-
-### Building the Taxonomy Index
-If you update the taxonomy in the database or JSON, rebuild the FAISS index:
+### Syncing Taxonomy
+To sync the taxonomy from Google Sheets to the PostgreSQL database and update the vector embeddings:
 ```bash
 uv run python scripts/build_taxonomy_index.py
 ```
@@ -89,6 +90,13 @@ Run the test suite using `pytest`:
 ```bash
 uv run pytest
 ```
+
+## 🚢 Deployment
+The project is containerized using Docker and deployed via GitHub Actions.
+
+- **Build Image**: `docker build -t expense-manager .`
+- **Run Locally**: `docker run -p 8501:8501 --env-file .env expense-manager`
+- **CI/CD**: Pushing to the `master` branch triggers the `.github/workflows/pipeline.yml`, which tests, builds, and deploys the app to Google Compute Engine.
 
 ## 📝 Development Conventions
 - **Style**: Follow [PEP 8](https://peps.python.org/pep-0008/).
