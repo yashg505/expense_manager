@@ -89,10 +89,10 @@ class MainDB:
                         SELECT taxonomy_id 
                         FROM processed_items
                         WHERE LOWER(shop_name) = %s AND LOWER(item_text) = %s
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                """, (norm_shop, norm_item))
-                row = cursor.fetchone()
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """, (norm_shop, norm_item))
+                    row = cursor.fetchone()
             
             if row:
                 logger.debug(f"Historical exact match hit: [{norm_shop}] '{norm_item}' -> '{row[0]}'")
@@ -109,11 +109,11 @@ class MainDB:
         """
         try:
             norm_shop = self._normalize(shop_name)
-            norm_item = self._normalize(item_type)
+            norm_type = self._normalize(item_type)
             
-            logger.debug(f"Searching historical exact match for shop: '{norm_shop}', item: '{norm_item}'")
+            logger.debug(f"Searching historical exact match for shop: '{norm_shop}', type: '{norm_type}'")
             
-            if not norm_item:
+            if not norm_type:
                 return None
 
             with psycopg2.connect(self.conn_str) as conn:
@@ -121,14 +121,14 @@ class MainDB:
                     cursor.execute("""
                         SELECT taxonomy_id 
                         FROM processed_items
-                        WHERE LOWER(shop_name) = %s AND LOWER(item_text) = %s
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                """, (norm_shop, norm_item))
-                row = cursor.fetchone()
+                        WHERE LOWER(shop_name) = %s AND LOWER(item_type) = %s
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """, (norm_shop, norm_type))
+                    row = cursor.fetchone()
             
             if row:
-                logger.debug(f"Historical exact match hit: [{norm_shop}] '{norm_item}' -> '{row[0]}'")
+                logger.debug(f"Historical exact match hit (type): [{norm_shop}] '{norm_type}' -> '{row[0]}'")
                 return row[0]
             
             return None
