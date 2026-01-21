@@ -92,7 +92,7 @@ class MainDB:
                     ORDER BY created_at DESC
                     LIMIT 1
                 """, (norm_shop, norm_item))
-                row = cursor.fetchone()
+                    row = cursor.fetchone()
             
             if row:
                 logger.debug(f"Historical exact match hit: [{norm_shop}] '{norm_item}' -> '{row[0]}'")
@@ -125,7 +125,7 @@ class MainDB:
                     ORDER BY created_at DESC
                     LIMIT 1
                 """, (norm_shop, norm_item))
-                row = cursor.fetchone()
+                    row = cursor.fetchone()
             
             if row:
                 logger.debug(f"Historical exact match hit: [{norm_shop}] '{norm_item}' -> '{row[0]}'")
