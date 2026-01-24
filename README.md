@@ -8,7 +8,7 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
 
 ### Key Features
 - **Intelligent OCR**: Uses RapidOCR and PaddleOCR for high-accuracy text extraction from images.
-- **LLM-Powered Parsing**: Extracts structured receipt data (vendor, date, total, line items) using GPT-4 or Gemini 1.5 Pro/Flash.
+- **LLM-Powered Parsing**: Extracts structured receipt data (vendor, date, total, line items) using GPT or Gemini .
 - **Smart Classification**: Automatically assigns categories to items based on a taxonomy stored in PostgreSQL (using `pgvector` for native semantic search).
 - **Deduplication**: Uses image fingerprinting (ImageHash) to prevent duplicate receipt uploads.
 - **Streamlit UI**: A user-friendly, multi-page web interface for uploading, reviewing, and confirming expenses.
@@ -18,7 +18,7 @@ Expense Manager transforms messy receipt images into structured data. It uses ad
 ## 🛠 Technology Stack
 - **Frontend**: [Streamlit](https://streamlit.io/)
 - **OCR**: [RapidOCR](https://github.com/RapidAI/RapidOCR), [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)
-- **LLM**: OpenAI (GPT-4), Google Gemini (1.5 Pro/Flash)
+- **LLM**: OpenAI, Google Gemini
 - **Data Validation**: [Pydantic](https://docs.pydantic.dev/)
 - **Database**: PostgreSQL with `pgvector` (Vector Search), SQLite (Metadata)
 - **Embeddings**: Sentence-Transformers (`all-MiniLM-L6-v2`)
