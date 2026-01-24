@@ -1,4 +1,3 @@
-import os
 import re
 import sys
 
@@ -160,3 +159,12 @@ class OCRHandler:
         
         # Final trim
         return text.strip()
+    
+# Example usage:
+if __name__ == "__main__":
+    ocr = OCRHandler(backend="rapidocr")
+    result = ocr.run(r"artifacts/images/f1f0da5a-34df-435c-aed3-c5a00427ef0c.jpeg")
+    if result.success:
+        print("OCR Text:\n", result.text)
+    else:
+        print("OCR Failed:", result.error)
