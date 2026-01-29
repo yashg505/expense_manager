@@ -180,14 +180,19 @@ Rules:
 - If user asks "unique items per month" interpret as unique_items_by_month.
 - If user asks about "non food" interpret as non_food_spend_monthly.
 - If you cannot map it, use intent="other".
-- - If the user asks "what categories do I have" / "what categories are in my data" / "my categories":
+- If the user asks "what categories do I have" / "what categories are in my data" / "my categories":
   intent="list_categories_in_data" (NOT schema_question)
+- If the user asks for "categories in items" / "categories in my items" / "what categories do I have":
+    - This is a DATA question, not schema.
+    - Set intent = "category_list_or_spend"
+    - Set entities.group_by = "category"
+    - Set entities.metric = "list_distinct" unless they say "expenses/spend/total", then metric="spend".
 
 """
 
 def llm_parse_intent(user_text: str) -> Dict[str, Any]:
     r = client.chat.completions.create(
-        model="gpt-4.1-mini",
+        model="gpt-4.1",
         messages=[
             {"role": "system", "content": INTENT_PROMPT},
             {"role": "user", "content": user_text},
@@ -256,6 +261,18 @@ METRIC RULES:
 - If metric is count: use COUNT(*) or COUNT(DISTINCT ...) depending on intent
 - If metric is quantity: SUM(COALESCE(quantity,1))
 
+TIME GROUPING RULE (very important):
+- Do NOT group by month/date unless the user explicitly asks for monthly/by month/each month.
+- Default is all-time totals.
+
+VALIDATION RULES (self-check before returning SQL):
+- Do a final pass and verify the SQL matches the user's intent JSON and question.
+- Confirm the SELECT returns exactly the fields needed to answer the question (no missing asked-for fields).
+- Confirm filters/grouping match the intent (e.g., do not add monthly grouping unless explicitly requested; do not omit it if requested).
+- Confirm any requested breakdown dimension (shop/category/sub-category/item_type/item_text) is present in SELECT and GROUP BY when aggregating.
+- Confirm category/sub-category questions use taxonomy join (tx.id = processed_items.taxonomy_id) and select the correct tx column.
+- If any check fails, revise the SQL and re-check. Return only the final corrected SQL.
+
 """
 
 def llm_intent_to_sql(intent_obj: Dict[str, Any]) -> str:
@@ -292,7 +309,8 @@ Rules:
 - Prefer receipt_date (fallback created_at).
 - If the user's question is about categories in their data, the SQL must query processed_items and join taxonomy.
 It must NOT query information_schema.
-
+- If user did NOT ask for monthly breakdown and SQL groups by month/date_trunc, remove the month grouping.
+- If the error indicates a missing table/column, fix it accordingly.
 """
 
 def llm_repair_sql(user_text: str, intent_obj: Dict[str, Any], bad_sql: str, error_text: str) -> str:
