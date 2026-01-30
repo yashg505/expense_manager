@@ -121,7 +121,7 @@ class MainDB:
                     cursor.execute("""
                         SELECT taxonomy_id 
                         FROM processed_items
-                        WHERE LOWER(shop_name) = %s AND LOWER(item_text) = %s
+                        WHERE LOWER(shop_name) = %s AND LOWER(item_type) = %s
                         ORDER BY created_at DESC
                         LIMIT 1
                     """, (norm_shop, norm_item))
