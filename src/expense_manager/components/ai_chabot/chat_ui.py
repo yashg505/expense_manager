@@ -1,24 +1,22 @@
 import json
 import uuid
-import requests
 import streamlit as st
 
-API_URL = "http://127.0.0.1:8000/chat"
+from expense_manager.components.ai_chabot.engine import answer  # <- direct call
 
 st.set_page_config(page_title="Expense Chatbot", page_icon="🧾", layout="wide")
 
 # ---------- Sidebar ----------
 st.sidebar.title("🧾 Expense Chatbot")
-st.sidebar.caption("FastAPI + OpenAI + Neon")
+st.sidebar.caption("Streamlit + OpenAI + Neon (direct)")
 
 if "conversation_id" not in st.session_state:
     st.session_state.conversation_id = str(uuid.uuid4())
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []  # list of {role, content}
+    st.session_state.messages = []
 
 show_debug = st.sidebar.toggle("Show debug", value=False)
-api_timeout = st.sidebar.slider("API timeout (seconds)", min_value=10, max_value=120, value=60, step=5)
 
 colA, colB = st.sidebar.columns(2)
 if colA.button("🔄 New conversation"):
@@ -51,27 +49,20 @@ if prompt:
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Call backend
-    payload = {"message": prompt, "conversation_id": st.session_state.conversation_id}
-
     with st.chat_message("assistant"):
         with st.spinner("Querying database..."):
             try:
-                resp = requests.post(API_URL, json=payload, timeout=api_timeout)
-                resp.raise_for_status()
-                data = resp.json()
-                answer = data.get("answer", "(no answer)")
+                data = answer(prompt, st.session_state.conversation_id)  # <- direct call
+                reply = data.get("answer", "(no answer)")
             except Exception as e:
-                answer = f"⚠️ API error: {e}"
-                data = {"answer": answer}
+                reply = f"⚠️ Error: {e}"
+                data = {"answer": reply}
 
-        st.markdown(answer)
+        st.markdown(reply)
 
         if show_debug:
-            with st.expander("Debug payload/response"):
-                st.write("Request payload:")
-                st.code(json.dumps(payload, indent=2))
-                st.write("Raw response:")
-                st.code(json.dumps(data, indent=2))
+            with st.expander("Debug"):
+                st.write("Result object:")
+                st.code(json.dumps(data, indent=2, default=str))
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+    st.session_state.messages.append({"role": "assistant", "content": reply})
