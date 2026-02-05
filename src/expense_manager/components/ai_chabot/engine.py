@@ -3,6 +3,12 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
+
+
 import psycopg
 import sqlparse
 #from fastapi import FastAPI
