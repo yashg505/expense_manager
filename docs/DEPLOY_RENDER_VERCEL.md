@@ -18,7 +18,7 @@ This keeps secrets (OpenAI key, DB connection) on the backend only.
 - **Build Command**:
   - `pip install .`
 - **Start Command**:
-  - `uvicorn expense_manager.components.ai_chabot.app:app --host 0.0.0.0 --port $PORT --app-dir src`
+  - `bash render-start.sh`
 
 ### Required environment variables (Render)
 
@@ -73,4 +73,3 @@ Open the Vercel URL and confirm:
 
 - Do **not** commit `.env` files with real keys. Rotate keys if they were exposed.
 - For production, restrict `CORS_ALLOW_ORIGINS` to your real UI domain(s).
-

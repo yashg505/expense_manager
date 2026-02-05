@@ -13,15 +13,25 @@ import psycopg
 import sqlparse
 #from fastapi import FastAPI
 #from pydantic import BaseModel
-from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+NEON_CONN_STR = os.getenv("NEON_CONN_STR")
 
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-NEON_CONN_STR = os.environ["NEON_CONN_STR"]
+_OPENAI_CLIENT: Optional[OpenAI] = None
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+def _client() -> OpenAI:
+    """
+    Lazily initialize the OpenAI client so the API can boot even if env vars
+    are temporarily missing/misconfigured. Calls that use the LLM will fail
+    with a clear error until OPENAI_API_KEY is set.
+    """
+    global _OPENAI_CLIENT
+    if _OPENAI_CLIENT is None:
+        if not OPENAI_API_KEY:
+            raise RuntimeError("Missing OPENAI_API_KEY environment variable")
+        _OPENAI_CLIENT = OpenAI(api_key=OPENAI_API_KEY)
+    return _OPENAI_CLIENT
 # app = FastAPI(title="Expense DB Chatbot (3-stage LLM pipeline)")
 
 # ----------------------------
@@ -44,6 +54,9 @@ def run_query(sql: str, params: Optional[Tuple[Any, ...]] = None, limit: int = 5
 
     if not is_read_only_sql(sql):
         raise ValueError("Only single-statement read-only SELECT/WITH queries are allowed.")
+
+    if not NEON_CONN_STR:
+        raise RuntimeError("Missing NEON_CONN_STR environment variable")
 
     sql_lower = sql.lower()
     is_metadata_query = "information_schema" in sql_lower
@@ -202,7 +215,7 @@ Rules:
 """
 
 def llm_parse_intent(user_text: str) -> Dict[str, Any]:
-    r = client.chat.completions.create(
+    r = _client().chat.completions.create(
         model="gpt-4.1",
         messages=[
             {"role": "system", "content": INTENT_PROMPT},
@@ -298,7 +311,7 @@ VALIDATION RULES (self-check before returning SQL):
 """
 
 def llm_intent_to_sql(intent_obj: Dict[str, Any]) -> str:
-    r = client.chat.completions.create(
+    r = _client().chat.completions.create(
         model="gpt-4.1",
         messages=[
             {"role": "system", "content": SQL_PROMPT},
@@ -336,7 +349,7 @@ It must NOT query information_schema.
 """
 
 def llm_repair_sql(user_text: str, intent_obj: Dict[str, Any], bad_sql: str, error_text: str) -> str:
-    r = client.chat.completions.create(
+    r = _client().chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
             {"role": "system", "content": SQL_REPAIR_PROMPT},
@@ -386,7 +399,7 @@ Prefer bullets or a compact table-style text.
 """
 
 def llm_summarize(user_text: str, intent_obj: Dict[str, Any], rows: List[Dict[str, Any]]) -> str:
-    r = client.chat.completions.create(
+    r = _client().chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
             {"role": "system", "content": ANSWER_PROMPT},

@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install .
-    startCommand: uvicorn expense_manager.components.ai_chabot.app:app --host 0.0.0.0 --port $PORT --app-dir src
+    startCommand: bash render-start.sh
     autoDeploy: true
     envVars:
       # Set these in Render Dashboard (do not commit secrets).
@@ -21,4 +21,3 @@ services:
       # Optional: skip Sheets export during public testing.
       - key: DISABLE_GSHEETS
         value: "1"
-
