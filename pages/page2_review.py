@@ -318,22 +318,22 @@ for fid, img_obj in st.session_state['images'].items():
                 st.rerun()
 
 # 3. Export Section
-confirmed_fids = [fid for fid, img in st.session_state['images'].items() 
-                  if img.metadata.get('confirmed') and not img.metadata.get('exported')]
+# confirmed_fids = [fid for fid, img in st.session_state['images'].items() 
+#                   if img.metadata.get('confirmed') and not img.metadata.get('exported')]
 
-if confirmed_fids:
-    st.divider()
-    st.subheader(f"🚀 Ready to Export ({len(confirmed_fids)} receipts)")
-    if st.button("Export All Confirmed to Google Sheets", type="primary", width="stretch"):
-        if export_to_gsheets(confirmed_fids):
-            for fid in confirmed_fids:
-                st.session_state['images'][fid].metadata['exported'] = True
-                # Update status in persistent DB
-                st.session_state['metadata_db'].update_status(fid, 'uploaded')
+# if confirmed_fids:
+#     st.divider()
+#     st.subheader(f"🚀 Ready to Export ({len(confirmed_fids)} receipts)")
+#     if st.button("Export All Confirmed to Google Sheets", type="primary", width="stretch"):
+#         if export_to_gsheets(confirmed_fids):
+#             for fid in confirmed_fids:
+#                 st.session_state['images'][fid].metadata['exported'] = True
+#                 # Update status in persistent DB
+#                 st.session_state['metadata_db'].update_status(fid, 'uploaded')
             
-            st.balloons()
-            st.success("🎉 Data successfully uploaded to Google Sheets!")
-            st.session_state["export_success"] = True
+#             st.balloons()
+#             st.success("🎉 Data successfully uploaded to Google Sheets!")
+#             st.session_state["export_success"] = True
 
 if st.session_state.get("export_success"):
     if st.button("Start New Batch"):
