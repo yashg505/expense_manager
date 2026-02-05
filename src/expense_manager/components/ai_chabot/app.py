@@ -296,7 +296,6 @@ import tempfile
 import uuid
 from typing import Optional
 
-import pandas as pd
 from PIL import Image
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -305,7 +304,6 @@ from pydantic import BaseModel
 from expense_manager.components.ai_chabot.engine import answer
 from expense_manager.components.ocr_handler import OCRHandler
 from expense_manager.agents.parser import parse_receipt
-from expense_manager.agents.classifier import ClassifierAgent
 from expense_manager.llm.openai_client import OpenAIClient
 from expense_manager.utils.load_config import load_config_file
 from expense_manager.utils.image_fingerprint import get_image_fingerprint
@@ -448,18 +446,25 @@ async def scan_receipt(file: UploadFile = File(...), _: None = Depends(require_d
 
     parsed = parse_receipt(ocr_result.text, llm)
 
-    # Pre-classify so UI can show predicted categories (and user can correct)
-    classifier = ClassifierAgent(llm_client=llm)
+    # Optional: classify items (can be memory-heavy in small containers due to torch/sentence-transformers).
+    disable_classifier = os.getenv("DISABLE_CLASSIFIER", "").strip().lower() in {"1", "true", "yes"}
+    classifier = None
     txdb = TaxonomyDB()
+    if not disable_classifier:
+        # Lazy import to keep the API boot lightweight on small instances (Render free tier).
+        from expense_manager.agents.classifier import ClassifierAgent  # noqa: WPS433
+        classifier = ClassifierAgent(llm_client=llm)
 
     draft_items: list[dict] = []
     for it in parsed.parsed_items:
-        c = classifier.classify_item(
-            item_name=it.item,
-            shop_name=parsed.shop or "Unknown",
-            item_type=it.item_type or "Unknown",
-        )
-        predicted_id = str(c.taxonomy_id)
+        predicted_id = "UNCATEGORIZED"
+        if classifier is not None:
+            c = classifier.classify_item(
+                item_name=it.item,
+                shop_name=parsed.shop or "Unknown",
+                item_type=it.item_type or "Unknown",
+            )
+            predicted_id = str(c.taxonomy_id)
 
         tx_row = txdb.get_row_by_id(predicted_id) if predicted_id and predicted_id != "UNCATEGORIZED" else None
         draft_items.append(
@@ -548,6 +553,7 @@ def confirm_receipt(file_id: str, req: ConfirmReceiptRequest, _: None = Depends(
     exported = False
     disable_gsheets = os.getenv("DISABLE_GSHEETS", "").strip().lower() in {"1", "true", "yes"}
     if not disable_gsheets:
+        import pandas as pd  # Lazy import to keep baseline memory lower
         # 2) Export to Google Sheet (same mapping style as Streamlit page2_review.py)
         sheet_type = load_config_file()["sheets"].get("expense_sheet_type", "expense")
         handler = GSheetHandler(sheet_type=sheet_type)
