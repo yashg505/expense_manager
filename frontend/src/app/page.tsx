@@ -33,6 +33,7 @@ async function fireConfetti() {
 
 export default function Home() {
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+  const DEMO_KEY = process.env.NEXT_PUBLIC_DEMO_KEY || "";
 
   const [apiOk, setApiOk] = useState<boolean | null>(null);
   const [apiErr, setApiErr] = useState<string | null>(null);
@@ -119,9 +120,12 @@ export default function Home() {
     setChatInput("");
 
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (DEMO_KEY) headers["X-DEMO-KEY"] = DEMO_KEY;
+
       const r = await fetch(`${API_BASE}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ message: text }),
       });
       const data = await r.json();
@@ -146,7 +150,11 @@ export default function Home() {
       const fd = new FormData();
       fd.append("file", selectedFile);
 
-      const r = await fetch(`${API_BASE}/scan-receipt`, { method: "POST", body: fd });
+      const r = await fetch(`${API_BASE}/scan-receipt`, {
+        method: "POST",
+        headers: DEMO_KEY ? { "X-DEMO-KEY": DEMO_KEY } : undefined,
+        body: fd,
+      });
       const data = await r.json();
       if (!r.ok) throw new Error(data?.detail || `HTTP ${r.status}`);
 
@@ -187,7 +195,9 @@ export default function Home() {
     try {
       const r = await fetch(`${API_BASE}/receipts/${scanResult.file_id}/confirm`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: DEMO_KEY
+          ? { "Content-Type": "application/json", "X-DEMO-KEY": DEMO_KEY }
+          : { "Content-Type": "application/json" },
         body: JSON.stringify({
           shop: scanResult.shop,
           date: scanResult.date,

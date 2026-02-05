@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: expense-manager-api
+    env: python
+    plan: free
+    buildCommand: pip install .
+    startCommand: uvicorn expense_manager.components.ai_chabot.app:app --host 0.0.0.0 --port $PORT --app-dir src
+    autoDeploy: true
+    envVars:
+      # Set these in Render Dashboard (do not commit secrets).
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: NEON_CONN_STR
+        sync: false
+      # Example: "https://your-vercel-app.vercel.app"
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+      # Protect public demo endpoints.
+      - key: DEMO_KEY
+        sync: false
+      # Optional: skip Sheets export during public testing.
+      - key: DISABLE_GSHEETS
+        value: "1"
+

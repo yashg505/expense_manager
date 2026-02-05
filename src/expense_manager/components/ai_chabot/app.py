@@ -298,7 +298,7 @@ from typing import Optional
 
 import pandas as pd
 from PIL import Image
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -317,14 +317,40 @@ from expense_manager.dbs.main_db import MainDB
 from expense_manager.integration.gsheet_handler import GSheetHandler
 
 
+def _parse_cors_origins(raw: Optional[str]) -> list[str]:
+    """
+    Render/Vercel deploys often need tight CORS (single UI origin).
+    For local dev, default to localhost origins.
+    """
+    if not raw:
+        return ["http://localhost:3000", "http://127.0.0.1:3000"]
+    parts = [p.strip() for p in raw.split(",")]
+    return [p for p in parts if p]
+
+
+_DEMO_KEY = os.getenv("DEMO_KEY")  # If set, protect write/LLM endpoints.
+
+
+def require_demo_key(x_demo_key: Optional[str] = Header(default=None, alias="X-DEMO-KEY")) -> None:
+    """
+    Lightweight protection for public demos. If DEMO_KEY is configured,
+    requests must send header `X-DEMO-KEY: <value>`.
+    """
+    if not _DEMO_KEY:
+        return
+    if not x_demo_key or x_demo_key != _DEMO_KEY:
+        raise HTTPException(status_code=401, detail="Missing/invalid demo key")
+
+
 app = FastAPI(title="Expense Manager API")
+
+CORS_ALLOW_ORIGINS = _parse_cors_origins(os.getenv("CORS_ALLOW_ORIGINS"))
 app.add_middleware(
     CORSMiddleware,
-    # Dev-friendly: allow the UI to be served from localhost, a LAN IP (phone testing),
-    # or any other origin without fighting CORS during iteration.
-    # Tighten this for production.
-    allow_origins=["*"],
-    allow_credentials=False,
+    # For production: set env CORS_ALLOW_ORIGINS to your Vercel URL(s),
+    # e.g. "https://expense-manager-xyz.vercel.app,https://www.yourdomain.com"
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -358,7 +384,7 @@ def health():
 
 
 @app.post("/chat")
-def chat(req: ChatRequest):
+def chat(req: ChatRequest, _: None = Depends(require_demo_key)):
     return answer(req.message, req.conversation_id)
 
 
@@ -371,7 +397,7 @@ def taxonomy():
 
 
 @app.post("/scan-receipt")
-async def scan_receipt(file: UploadFile = File(...)):
+async def scan_receipt(file: UploadFile = File(...), _: None = Depends(require_demo_key)):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Upload an image file")
 
@@ -472,7 +498,7 @@ async def scan_receipt(file: UploadFile = File(...)):
 
 
 @app.post("/receipts/{file_id}/confirm")
-def confirm_receipt(file_id: str, req: ConfirmReceiptRequest):
+def confirm_receipt(file_id: str, req: ConfirmReceiptRequest, _: None = Depends(require_demo_key)):
     main_db = MainDB()
     corr_db = CorrectionsDB()
     txdb = TaxonomyDB()
@@ -514,40 +540,44 @@ def confirm_receipt(file_id: str, req: ConfirmReceiptRequest):
         items=new_items,
     )
 
-    # 2) Export to Google Sheet (same mapping style as Streamlit page2_review.py)
-    sheet_type = load_config_file()["sheets"].get("expense_sheet_type", "expense")
-    handler = GSheetHandler(sheet_type=sheet_type)
+    exported = False
+    disable_gsheets = os.getenv("DISABLE_GSHEETS", "").strip().lower() in {"1", "true", "yes"}
+    if not disable_gsheets:
+        # 2) Export to Google Sheet (same mapping style as Streamlit page2_review.py)
+        sheet_type = load_config_file()["sheets"].get("expense_sheet_type", "expense")
+        handler = GSheetHandler(sheet_type=sheet_type)
 
-    tax_map = {str(r["id"]): r for r in txdb.get_all_rows()}
-    export_rows = []
-    for it in new_items:
-        tax = tax_map.get(str(it["taxonomy_id"]), {}) if it["taxonomy_id"] else {}
-        qty = int(it.get("item_count") or 1)
-        price = float(it.get("price") or 0.0)
-        discount = float(it.get("discount") or 0.0)
-        total = price - discount
+        tax_map = {str(r["id"]): r for r in txdb.get_all_rows()}
+        export_rows = []
+        for it in new_items:
+            tax = tax_map.get(str(it["taxonomy_id"]), {}) if it["taxonomy_id"] else {}
+            qty = int(it.get("item_count") or 1)
+            price = float(it.get("price") or 0.0)
+            discount = float(it.get("discount") or 0.0)
+            total = price - discount
 
-        export_rows.append(
-            {
-                "Date": req.date,
-                "Time": req.time,
-                "Shop": shop,
-                "Item": it["item"],
-                "Type": it.get("item_type"),
-                "Category": tax.get("category", "Uncategorized"),
-                "Sub Category I": tax.get("sub_category_i", ""),
-                "Sub Category II": tax.get("sub_category_ii", ""),
-                "Quantity": qty,
-                "Price": price,
-                "Discount": discount,
-                "Total": total,
-            }
-        )
+            export_rows.append(
+                {
+                    "Date": req.date,
+                    "Time": req.time,
+                    "Shop": shop,
+                    "Item": it["item"],
+                    "Type": it.get("item_type"),
+                    "Category": tax.get("category", "Uncategorized"),
+                    "Sub Category I": tax.get("sub_category_i", ""),
+                    "Sub Category II": tax.get("sub_category_ii", ""),
+                    "Quantity": qty,
+                    "Price": price,
+                    "Discount": discount,
+                    "Total": total,
+                }
+            )
 
-    df = pd.DataFrame(export_rows)
-    handler.append_df_to_sheet(df)
+        df = pd.DataFrame(export_rows)
+        handler.append_df_to_sheet(df)
+        exported = True
 
     # 3) Mark uploaded (locks the draft)
     meta_db.update_status(file_id, "uploaded")
 
-    return {"ok": True, "exported": True, "file_id": file_id}
+    return {"ok": True, "exported": exported, "file_id": file_id}
