@@ -345,11 +345,16 @@ def require_demo_key(x_demo_key: Optional[str] = Header(default=None, alias="X-D
 app = FastAPI(title="Expense Manager API")
 
 CORS_ALLOW_ORIGINS = _parse_cors_origins(os.getenv("CORS_ALLOW_ORIGINS"))
+CORS_ALLOW_ORIGIN_REGEX = os.getenv("CORS_ALLOW_ORIGIN_REGEX") or None
 app.add_middleware(
     CORSMiddleware,
     # For production: set env CORS_ALLOW_ORIGINS to your Vercel URL(s),
     # e.g. "https://expense-manager-xyz.vercel.app,https://www.yourdomain.com"
     allow_origins=CORS_ALLOW_ORIGINS,
+    # If you also need to allow preview subdomains (e.g. Cloudflare Pages commit URLs),
+    # set CORS_ALLOW_ORIGIN_REGEX to a regex like:
+    #   ^https://([a-z0-9-]+\\.)?expense-manager-7ma\\.pages\\.dev$
+    allow_origin_regex=CORS_ALLOW_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
