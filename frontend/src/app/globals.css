@@ -25,6 +25,16 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* When a fixed-bottom nav is present on mobile, reserve space so inputs aren't covered */
+.has-bottom-nav {
+  padding-bottom: 80px;
+}
+@media (min-width: 992px) {
+  .has-bottom-nav {
+    padding-bottom: 0;
+  }
+}
+
 /* Mobile: swipe/snap between panes */
 .pane-snap {
   display: flex;

@@ -399,6 +399,61 @@ def taxonomy():
     return [{"id": str(r["id"]), "full_path": r.get("full_path")} for r in rows]
 
 
+def _budget_bucket(category: Optional[str]) -> str:
+    """Map taxonomy categories into the 3-pane demo buckets."""
+    s = (category or "").strip().lower()
+    if "food" in s:
+        return "Food"
+    if "transport" in s or "travel" in s or "fuel" in s:
+        return "Transport"
+    if "entertain" in s or "leisure" in s or "fun" in s:
+        return "Entertainment"
+    return "Other"
+
+
+@app.get("/summary/budget")
+def summary_budget(_: None = Depends(require_demo_key)):
+    """
+    Lightweight budget summary for the current month.
+    Returns totals for buckets (Food/Transport/Entertainment/Other).
+    """
+    conn_str = os.getenv("NEON_CONN_STR")
+    if not conn_str:
+        raise HTTPException(status_code=500, detail="Missing NEON_CONN_STR")
+
+    # Lazy import (psycopg2 is used by the db layer in this repo)
+    import psycopg2
+
+    sql = """
+        SELECT
+          COALESCE(t.category, 'Uncategorized') AS category,
+          SUM(CASE
+                WHEN pi.total IS NOT NULL THEN pi.total
+                WHEN pi.price IS NOT NULL THEN pi.price * COALESCE(pi.quantity, 1)
+                ELSE 0
+              END) AS spend
+        FROM processed_items pi
+        LEFT JOIN taxonomy t ON pi.taxonomy_id = t.id
+        WHERE date_trunc('month', COALESCE(pi.receipt_date::timestamp, pi.created_at)) =
+              date_trunc('month', CURRENT_DATE::timestamp)
+        GROUP BY 1
+        ORDER BY spend DESC
+    """
+
+    with psycopg2.connect(conn_str) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+
+    raw = [{"category": r[0], "spend": float(r[1] or 0)} for r in rows]
+    totals: dict[str, float] = {"Food": 0.0, "Transport": 0.0, "Entertainment": 0.0, "Other": 0.0}
+    for r in raw:
+        bucket = _budget_bucket(r["category"])
+        totals[bucket] = float(totals.get(bucket, 0.0) + r["spend"])
+
+    return {"month": None, "totals": totals, "raw": raw}
+
+
 @app.post("/scan-receipt")
 async def scan_receipt(file: UploadFile = File(...), _: None = Depends(require_demo_key)):
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -407,6 +462,10 @@ async def scan_receipt(file: UploadFile = File(...), _: None = Depends(require_d
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty upload")
+
+    max_upload_mb = float(os.getenv("MAX_UPLOAD_MB", "10") or "10")
+    if len(data) > int(max_upload_mb * 1024 * 1024):
+        raise HTTPException(status_code=413, detail=f"Image too large (> {max_upload_mb} MB). Please upload a smaller image.")
 
     # Fingerprint for dedupe
     try:
@@ -430,7 +489,10 @@ async def scan_receipt(file: UploadFile = File(...), _: None = Depends(require_d
         temp_path = tmp.name
 
     try:
-        ocr = OCRHandler(backend="rapidocr")
+        # RapidOCR loads ONNX runtime models and may exceed memory on small instances.
+        # You can switch to "tesseract" for a lighter footprint if the binary is available.
+        ocr_backend = (os.getenv("OCR_BACKEND") or "rapidocr").strip().lower()
+        ocr = OCRHandler(backend=ocr_backend)
         ocr_result = ocr.run(temp_path)
     finally:
         try:

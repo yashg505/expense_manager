@@ -35,6 +35,12 @@ export default function Home() {
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
   const DEMO_KEY = process.env.NEXT_PUBLIC_DEMO_KEY || "";
 
+  const BUDGET_LIMITS: Record<string, number> = {
+    Food: 400,
+    Transport: 120,
+    Entertainment: 150,
+  };
+
   const [apiOk, setApiOk] = useState<boolean | null>(null);
   const [apiErr, setApiErr] = useState<string | null>(null);
 
@@ -56,6 +62,7 @@ export default function Home() {
   const [confirmOk, setConfirmOk] = useState(false);
 
   const [budgetPulse, setBudgetPulse] = useState(false);
+  const [budgetTotals, setBudgetTotals] = useState<Record<string, number>>({});
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
@@ -96,6 +103,25 @@ export default function Home() {
       }
     })();
   }, [API_BASE]);
+
+  async function refreshBudget() {
+    if (!apiOk) return;
+    try {
+      const headers: Record<string, string> = {};
+      if (DEMO_KEY) headers["X-DEMO-KEY"] = DEMO_KEY;
+      const r = await fetch(`${API_BASE}/summary/budget`, { cache: "no-store", headers });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.detail || `HTTP ${r.status}`);
+      setBudgetTotals(data?.totals || {});
+    } catch {
+      // Budget is a nice-to-have; avoid breaking UI if it fails.
+    }
+  }
+
+  useEffect(() => {
+    refreshBudget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiOk, API_BASE]);
 
   function scrollToPane(pane: "budget" | "chat" | "insights", behavior: ScrollBehavior = "smooth") {
     const scroller = scrollerRef.current;
@@ -213,6 +239,7 @@ export default function Home() {
       setBudgetPulse(true);
       window.setTimeout(() => setBudgetPulse(false), 950);
       await fireConfetti();
+      refreshBudget();
 
       setMessages((m) => [...m, { role: "assistant", content: "Uploaded successfully: saved to DB + Google Sheet." }]);
       scrollToPane("budget");
@@ -225,7 +252,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-vh-100 bg-body-tertiary text-body">
+    <div className="min-vh-100 bg-body-tertiary text-body has-bottom-nav">
       <nav className="navbar navbar-light bg-white border-bottom sticky-top" style={{ height: 56 }}>
         <div className="container-fluid">
           <span className="navbar-brand mb-0 h1">Expense Manager</span>
@@ -277,35 +304,27 @@ export default function Home() {
                 Glance left (limits) {"->"} act (chat) {"->"} verify (results).
               </div>
 
-              <div className="mb-3">
-                <div className="d-flex justify-content-between small">
-                  <span>Food</span>
-                  <span className="text-muted">€230 / €400</span>
-                </div>
-                <div className="progress" style={{ height: 8 }}>
-                  <div className="progress-bar bg-success" style={{ width: "58%" }} />
-                </div>
-              </div>
+              {Object.keys(BUDGET_LIMITS).map((k) => {
+                const spent = Number(budgetTotals?.[k] ?? 0);
+                const limit = Number(BUDGET_LIMITS[k] ?? 0);
+                const pct = limit > 0 ? Math.min(100, Math.round((spent / limit) * 100)) : 0;
+                const barClass =
+                  k === "Food" ? "bg-success" : k === "Transport" ? "bg-info" : "bg-warning";
 
-              <div className="mb-3">
-                <div className="d-flex justify-content-between small">
-                  <span>Transport</span>
-                  <span className="text-muted">€64 / €120</span>
-                </div>
-                <div className="progress" style={{ height: 8 }}>
-                  <div className="progress-bar bg-info" style={{ width: "53%" }} />
-                </div>
-              </div>
-
-              <div>
-                <div className="d-flex justify-content-between small">
-                  <span>Entertainment</span>
-                  <span className="text-muted">€90 / €150</span>
-                </div>
-                <div className="progress" style={{ height: 8 }}>
-                  <div className="progress-bar bg-warning" style={{ width: "60%" }} />
-                </div>
-              </div>
+                return (
+                  <div className="mb-3" key={k}>
+                    <div className="d-flex justify-content-between small">
+                      <span>{k}</span>
+                      <span className="text-muted">
+                        €{spent.toFixed(2)} / €{limit.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="progress" style={{ height: 8 }}>
+                      <div className={`progress-bar ${barClass}`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
