@@ -19,7 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev && uv cache clean
+# NOTE: we intentionally do not use `--frozen` here so Docker builds don't fail
+# if the lockfile isn't regenerated after dependency tweaks.
+RUN uv sync --no-dev && uv cache clean
 
 COPY . .
 
