@@ -412,12 +412,56 @@ def llm_summarize(user_text: str, intent_obj: Dict[str, Any], rows: List[Dict[st
     )
     return (r.choices[0].message.content or "").strip()
 
+def _is_greeting(text: str) -> bool:
+    """
+    Avoid running the SQL pipeline for simple greetings / typos like "helli".
+    Keeps chat behavior natural and prevents surprising DB lookups.
+    """
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+
+    # Keep only letters for a cheap "typo-tolerant" greeting check.
+    letters = re.sub(r"[^a-z]+", "", t)
+    if not letters:
+        return False
+
+    greetings = {
+        "hi",
+        "hey",
+        "hello",
+        "hiya",
+        "heya",
+        "howdy",
+        # common typos / variants
+        "helli",
+        "helo",
+        "helloo",
+        "hellooo",
+    }
+
+    if letters in greetings:
+        return True
+
+    # Also treat prefixes like "hello..." or "hi..." as greetings.
+    return letters.startswith(("hi", "hey", "hello", "hiya"))
+
 def answer(message: str, conversation_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Single entry point for chatbot logic.
     This is called by Streamlit directly and by FastAPI via app.py wrapper.
     """
     user_text = (message or "").strip()
+
+    if _is_greeting(user_text):
+        return {
+            "answer": (
+                "Hello! You can:\n"
+                "- Upload a receipt (Scan) to extract items\n"
+                "- Ask things like: \"How much did I spend at Lidl this month?\" or \"Top 5 items by spend\"\n"
+                "- Or say what you want to do next."
+            )
+        }
 
     # 1) Interpret
     intent_obj = llm_parse_intent(user_text)

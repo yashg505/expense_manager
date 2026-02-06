@@ -313,6 +313,7 @@ from expense_manager.dbs.taxonomy_db import TaxonomyDB
 from expense_manager.dbs.corrections_db import CorrectionsDB
 from expense_manager.dbs.main_db import MainDB
 from expense_manager.integration.gsheet_handler import GSheetHandler
+from expense_manager.models.classification_choice import ClassificationChoice
 
 
 def _parse_cors_origins(raw: Optional[str]) -> list[str]:
@@ -411,6 +412,92 @@ def _budget_bucket(category: Optional[str]) -> str:
     return "Other"
 
 
+def _taxonomy_tokens(item_text: str, item_type: Optional[str]) -> list[str]:
+    """
+    Cheap tokenization for text-search candidate retrieval (keeps CPU/memory low).
+    """
+    import re
+
+    s = f"{item_text or ''} {item_type or ''}".lower()
+    # keep letters/numbers, split
+    raw = re.findall(r"[a-z0-9]+", s)
+    # drop very short tokens and overly generic noise
+    stop = {"and", "or", "the", "with", "pack", "kg", "g", "ml", "l", "x"}
+    toks = [t for t in raw if len(t) >= 3 and t not in stop]
+    # de-dupe preserving order
+    seen = set()
+    out: list[str] = []
+    for t in toks:
+        if t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+        if len(out) >= 4:
+            break
+    return out
+
+
+def _taxonomy_candidates_text_search(conn_str: str, tokens: list[str], limit: int = 12) -> list[dict]:
+    """
+    Return taxonomy candidates using simple ILIKE search over taxonomy text fields.
+    This is a lightweight alternative to embedding search (no torch/sentence-transformers).
+    """
+    if not tokens:
+        return []
+
+    import psycopg2
+    from psycopg2.extras import DictCursor
+
+    # Search across a combined text blob to keep query simple.
+    haystack = "COALESCE(full_path,'') || ' ' || COALESCE(description,'') || ' ' || COALESCE(category,'') || ' ' || COALESCE(sub_category_i,'') || ' ' || COALESCE(sub_category_ii,'')"
+    ors = " OR ".join([f"({haystack}) ILIKE %s" for _ in tokens])
+    sql = f"""
+        SELECT id, full_path, category, sub_category_i, sub_category_ii, description
+        FROM taxonomy
+        WHERE {ors}
+        LIMIT %s
+    """
+    params = [f"%{t}%" for t in tokens] + [limit]
+
+    with psycopg2.connect(conn_str) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            cur.execute(sql, tuple(params))
+            return [dict(r) for r in cur.fetchall()]
+
+
+def _llm_pick_taxonomy_id(llm: OpenAIClient, item_text: str, item_type: Optional[str], candidates: list[dict]) -> str:
+    """
+    Ask the LLM to choose a taxonomy id from a short candidate list.
+    Returns taxonomy id or "UNCATEGORIZED".
+    """
+    if not candidates:
+        return "UNCATEGORIZED"
+
+    lines = []
+    for c in candidates[:10]:
+        lines.append(f"- ID: {c.get('id')} | Path: {c.get('full_path') or ''} | Desc: {(c.get('description') or '')[:80]}")
+
+    prompt = f"""
+Pick the best taxonomy ID for this receipt line item.
+
+Item text: "{item_text}"
+Item type: "{item_type or ''}"
+
+Candidates:
+{chr(10).join(lines)}
+
+Rules:
+- Return ONLY the chosen ID from the candidate list, or "NONE" if none fit.
+"""
+
+    resp = llm.generate(prompt=prompt, response_model=ClassificationChoice)
+    choice = resp.content
+    chosen = (choice.chosen_id or "").strip()
+    if not chosen or chosen.upper() == "NONE":
+        return "UNCATEGORIZED"
+    return chosen
+
+
 @app.get("/summary/budget")
 def summary_budget(_: None = Depends(require_demo_key)):
     """
@@ -462,6 +549,8 @@ async def scan_receipt(file: UploadFile = File(...), _: None = Depends(require_d
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty upload")
+
+    conn_str = os.getenv("NEON_CONN_STR") or ""
 
     max_upload_mb = float(os.getenv("MAX_UPLOAD_MB", "10") or "10")
     if len(data) > int(max_upload_mb * 1024 * 1024):
@@ -518,6 +607,11 @@ async def scan_receipt(file: UploadFile = File(...), _: None = Depends(require_d
         classifier = ClassifierAgent(llm_client=llm)
 
     draft_items: list[dict] = []
+    # Optional fallback: for items that end up Uncategorized, do a lightweight DB text-search + LLM pick.
+    enable_fallback = os.getenv("ENABLE_LLM_FALLBACK_CLASSIFY", "").strip().lower() in {"1", "true", "yes"}
+    max_fallback = int(os.getenv("MAX_LLM_FALLBACK_ITEMS", "8") or "8")
+    fallback_used = 0
+
     for it in parsed.parsed_items:
         predicted_id = "UNCATEGORIZED"
         if classifier is not None:
@@ -527,6 +621,17 @@ async def scan_receipt(file: UploadFile = File(...), _: None = Depends(require_d
                 item_type=it.item_type or "Unknown",
             )
             predicted_id = str(c.taxonomy_id)
+
+        # If classifier couldn't decide, try a cheap fallback (optional; costs tokens).
+        if enable_fallback and predicted_id == "UNCATEGORIZED" and fallback_used < max_fallback and conn_str:
+            tokens = _taxonomy_tokens(it.item, it.item_type)
+            candidates = _taxonomy_candidates_text_search(conn_str, tokens, limit=12)
+            if candidates:
+                picked = _llm_pick_taxonomy_id(llm, it.item, it.item_type, candidates)
+                # Only accept valid ids that exist in taxonomy.
+                if picked != "UNCATEGORIZED" and txdb.validate_row_id(picked):
+                    predicted_id = picked
+            fallback_used += 1
 
         tx_row = txdb.get_row_by_id(predicted_id) if predicted_id and predicted_id != "UNCATEGORIZED" else None
         draft_items.append(
