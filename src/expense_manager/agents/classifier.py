@@ -72,14 +72,23 @@ class ClassifierAgent:
             logger.info(f"Step 1 Fail: No correction found for [{shop_name}] '{item_name}'")
             # STEP 2: Historical Items (Exact Shop + Item Match)
             history_id = self.main_db.get_historical_exact_match(shop_name, item_name)
-            if history_id:
+            # IMPORTANT: don't "lock in" UNCATEGORIZED from history; treat it as a miss and continue the waterfall.
+            if history_id and str(history_id).upper() != "UNCATEGORIZED":
                 logger.info(f"Step 2.1 Hit (History Exact): [{shop_name}] '{item_name}' -> {history_id}")
                 return self._build_result(history_id, 1.0)
+            elif history_id:
+                logger.info(
+                    f"Step 2.1 Skip (History Exact was UNCATEGORIZED): [{shop_name}] '{item_name}' -> {history_id}"
+                )
             else:
                 history_id = self.main_db.get_historical_exact_match_type(shop_name, item_type)
-                if history_id:
+                if history_id and str(history_id).upper() != "UNCATEGORIZED":
                     logger.info(f"Step 2.2 Hit (History Type Exact): [{shop_name}] '{item_type}' -> {history_id}")
                     return self._build_result(history_id, 1.0)
+                elif history_id:
+                    logger.info(
+                        f"Step 2.2 Skip (History Type Exact was UNCATEGORIZED): [{shop_name}] '{item_type}' -> {history_id}"
+                    )
 
             logger.info(f"Step 2 Fail: No historical match found for [{shop_name}] '{item_name}'")
             # --- Vector Search Candidates ---
