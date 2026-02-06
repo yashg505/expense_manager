@@ -17,3 +17,4 @@ token.json
 images/
 #env variables
 .env
+.env.docker

@@ -1,0 +1,21 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - .env.docker
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Cloudflare-style static export bakes env at build time.
+        NEXT_PUBLIC_API_BASE_URL: /api
+        NEXT_PUBLIC_DEMO_KEY: ${NEXT_PUBLIC_DEMO_KEY-}
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
