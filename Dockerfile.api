@@ -24,10 +24,11 @@ RUN pip install --upgrade pip && \
     pip install --extra-index-url https://download.pytorch.org/whl/cpu "torch==2.9.1+cpu"
 
 # Install the app + dependencies (from pyproject.toml)
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md config.yaml ./
 COPY src ./src
 RUN pip install .
 
 EXPOSE 8000
 
-CMD ["python","-m","uvicorn","expense_manager.components.ai_chabot.app:app","--host","0.0.0.0","--port","8000","--app-dir","src"]
+# Cloud Run provides $PORT. Default to 8000 for local usage.
+CMD ["sh","-c","python -m uvicorn expense_manager.components.ai_chabot.app:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir src"]
