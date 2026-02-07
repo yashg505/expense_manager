@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -6,20 +7,24 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
-
 import psycopg
 import sqlparse
-#from fastapi import FastAPI
-#from pydantic import BaseModel
-from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv()
+# Note: in Cloud Run, env vars are provided via service config / Secret Manager.
+# We keep startup resilient by not crashing at import-time if they're missing.
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+NEON_CONN_STR = os.getenv("NEON_CONN_STR")
 
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-NEON_CONN_STR = os.environ["NEON_CONN_STR"]
+_OPENAI_CLIENT: Optional[OpenAI] = None
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+def _get_openai_client() -> OpenAI:
+    global _OPENAI_CLIENT
+    if _OPENAI_CLIENT is None:
+        if not OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        _OPENAI_CLIENT = OpenAI(api_key=OPENAI_API_KEY)
+    return _OPENAI_CLIENT
 # app = FastAPI(title="Expense DB Chatbot (3-stage LLM pipeline)")
 
 # ----------------------------
@@ -54,6 +59,9 @@ def run_query(sql: str, params: Optional[Tuple[Any, ...]] = None, limit: int = 5
     print(sql)
     print("PARAMS:", params)
     print("================================\n")
+
+    if not NEON_CONN_STR:
+        raise RuntimeError("NEON_CONN_STR is not set")
 
     with psycopg.connect(NEON_CONN_STR) as conn:
         with conn.cursor() as cur:
@@ -200,7 +208,7 @@ Rules:
 """
 
 def llm_parse_intent(user_text: str) -> Dict[str, Any]:
-    r = client.chat.completions.create(
+    r = _get_openai_client().chat.completions.create(
         model="gpt-4.1",
         messages=[
             {"role": "system", "content": INTENT_PROMPT},
@@ -296,7 +304,7 @@ VALIDATION RULES (self-check before returning SQL):
 """
 
 def llm_intent_to_sql(intent_obj: Dict[str, Any]) -> str:
-    r = client.chat.completions.create(
+    r = _get_openai_client().chat.completions.create(
         model="gpt-4.1",
         messages=[
             {"role": "system", "content": SQL_PROMPT},
@@ -334,7 +342,7 @@ It must NOT query information_schema.
 """
 
 def llm_repair_sql(user_text: str, intent_obj: Dict[str, Any], bad_sql: str, error_text: str) -> str:
-    r = client.chat.completions.create(
+    r = _get_openai_client().chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
             {"role": "system", "content": SQL_REPAIR_PROMPT},
@@ -384,7 +392,7 @@ Prefer bullets or a compact table-style text.
 """
 
 def llm_summarize(user_text: str, intent_obj: Dict[str, Any], rows: List[Dict[str, Any]]) -> str:
-    r = client.chat.completions.create(
+    r = _get_openai_client().chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
             {"role": "system", "content": ANSWER_PROMPT},
