@@ -2,11 +2,7 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_NO_CACHE=1 \
     PYTHONPATH=/app/src
-
-# uv (fast installer)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -18,15 +14,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock README.md ./
-# NOTE: we intentionally do not use `--frozen` here so Docker builds don't fail
-# if the lockfile isn't regenerated after dependency tweaks.
-RUN uv sync --no-dev && uv cache clean
+# Create a venv for the app (keeps image tidy and predictable)
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-COPY . .
+# CPU-only torch: avoids gigantic CUDA/cuDNN deps that can exhaust VM disk during Docker build.
+# We pin to the same torch major/minor implied by your environment; update if you bump sentence-transformers/torch.
+RUN pip install --upgrade pip && \
+    pip install --extra-index-url https://download.pytorch.org/whl/cpu "torch==2.9.1+cpu"
+
+# Install the app + dependencies (from pyproject.toml)
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+RUN pip install .
 
 EXPOSE 8000
 
-# `uv sync` installs into a project virtualenv by default, so run via `uv run`
-# to ensure the container uses the locked dependencies.
-CMD ["uv","run","python","-m","uvicorn","expense_manager.components.ai_chabot.app:app","--host","0.0.0.0","--port","8000","--app-dir","src"]
+CMD ["python","-m","uvicorn","expense_manager.components.ai_chabot.app:app","--host","0.0.0.0","--port","8000","--app-dir","src"]
