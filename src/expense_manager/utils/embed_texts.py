@@ -1,46 +1,26 @@
 import numpy as np
-from expense_manager.utils.load_config import load_config_file
 from expense_manager.logger import get_logger
 
 logger = get_logger(__name__)
 
-# We prefer an ONNX-based embedding backend (fastembed) to avoid pulling in torch + CUDA
-# dependencies on Linux. If fastembed isn't available, we fall back to SentenceTransformer.
-_EMBEDDING_BACKEND = None  # "fastembed" | "sentence_transformers"
+# Global cache to avoid re-loading the model on every request.
 _EMBEDDING_MODEL = None
 
-def _get_backend_and_model():
-    global _EMBEDDING_BACKEND, _EMBEDDING_MODEL
-    if _EMBEDDING_MODEL is not None:
-        return _EMBEDDING_BACKEND, _EMBEDDING_MODEL
+def _get_model():
+    """Lazy load the SentenceTransformer embedding model."""
+    global _EMBEDDING_MODEL
+    if _EMBEDDING_MODEL is None:
+        from expense_manager.utils.load_config import load_config_file
+        from sentence_transformers import SentenceTransformer  # type: ignore
 
-    cfg_name = load_config_file().get("llm", {}).get("embedding_model") or ""
-
-    # Try fastembed first
-    try:
-        from fastembed import TextEmbedding  # type: ignore
-
-        # fastembed has its own model naming; default to a small 384-dim model.
-        model_name = cfg_name or "BAAI/bge-small-en-v1.5"
-        logger.info(f"Loading fastembed model: {model_name}")
-        _EMBEDDING_BACKEND = "fastembed"
-        _EMBEDDING_MODEL = TextEmbedding(model_name=model_name)
-        return _EMBEDDING_BACKEND, _EMBEDDING_MODEL
-    except Exception as e:
-        logger.warning(f"fastembed unavailable/failed to init ({e}); falling back to sentence-transformers.")
-
-    # Fallback to sentence-transformers (heavier)
-    from sentence_transformers import SentenceTransformer  # type: ignore
-
-    model_name = cfg_name or "all-MiniLM-L6-v2"
-    logger.info(f"Loading SentenceTransformer model: {model_name}")
-    _EMBEDDING_BACKEND = "sentence_transformers"
-    _EMBEDDING_MODEL = SentenceTransformer(model_name)
-    return _EMBEDDING_BACKEND, _EMBEDDING_MODEL
+        model_name = load_config_file().get("llm", {}).get("embedding_model", "all-MiniLM-L6-v2")
+        logger.info(f"Loading SentenceTransformer model: {model_name}")
+        _EMBEDDING_MODEL = SentenceTransformer(model_name)
+    return _EMBEDDING_MODEL
 
 def embed_texts(texts: list[str]) -> np.ndarray:
     """
-    Generates embeddings for a list of strings using a local embedding backend.
+    Generates embeddings for a list of strings using SentenceTransformer.
     
     Args:
         texts: A list of strings to be embedded.
@@ -57,16 +37,11 @@ def embed_texts(texts: list[str]) -> np.ndarray:
     if isinstance(texts, str):
         texts = [texts]
 
-    backend, model = _get_backend_and_model()
+    model = _get_model()
 
     try:
         logger.info(f"Generating embeddings for {len(texts)} texts locally.")
-
-        if backend == "fastembed":
-            # fastembed yields an iterator of np arrays
-            embeddings = list(model.embed(texts))
-        else:
-            embeddings = model.encode(texts, show_progress_bar=False)
+        embeddings = model.encode(texts, show_progress_bar=False)
         
         # Convert to numpy array with float32 type for pgvector compatibility
         vector_array = np.array(embeddings).astype('float32')

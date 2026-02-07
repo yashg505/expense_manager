@@ -144,7 +144,14 @@ class MainDB:
         try:
             # Generate embeddings for all items at once
             item_texts = [item["item"] for item in items]
-            embeddings = embed_texts(item_texts)
+            # Embeddings are used for vector search / similarity, but they should never block saving a receipt.
+            # If the embedding backend isn't available in the deployed container, we still save rows with NULL
+            # embeddings so the user flow (scan -> review -> confirm) works.
+            try:
+                embeddings = embed_texts(item_texts)
+            except Exception as e:
+                logger.warning(f"Embedding generation failed; saving without embeddings. Error: {e}")
+                embeddings = []
 
             with psycopg2.connect(self.conn_str) as conn:
                 with conn.cursor() as cursor:
